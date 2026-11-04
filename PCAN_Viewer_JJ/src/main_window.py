@@ -1467,7 +1467,18 @@ class UniversalCANMonitor(QMainWindow):
                 header = raw[:4096].decode('latin1')
                 db = self._load_sym_v5(path) if re.search(r'FormatVersion\s*=\s*5\.0', header) else self._load_sym_v6(path)
             else:
-                db = cantools.database.load_file(path)
+                encoding = None
+                if name.lower().endswith('.dbc'):
+                    # cantools defaults to cp1252, which turns UTF-8 units
+                    # such as °/s into Â°/s. Preserve legacy DBC encoding
+                    # unless the complete file is valid UTF-8 (with/without BOM).
+                    try:
+                        raw.decode('utf-8-sig')
+                    except UnicodeDecodeError:
+                        pass
+                    else:
+                        encoding = 'utf-8-sig'
+                db = cantools.database.load_file(path, encoding=encoding)
         return db
 
     def install_database(self, db, bus_num, name, raw, path='', ident=None):

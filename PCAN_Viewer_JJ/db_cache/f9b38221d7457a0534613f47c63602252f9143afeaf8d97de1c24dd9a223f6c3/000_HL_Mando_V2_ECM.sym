@@ -1,0 +1,50 @@
+﻿FormatVersion=6.0 // Do not edit this line!
+Title="HL_R2_ECM"
+
+{SEND}
+
+[ADC_3]
+ID=163h
+Type=FDStandard
+Len=32
+CycleTime=10
+Var=B000_ADC_0x163_CheckSum unsigned 0,16 -m
+Var=B016_ADC_0x163_RollingCounter unsigned 16,8 -m
+Var=B024_ADC_PinionAgEna unsigned 24,2 -m
+Var=B064_ADC_PinionAgCmd unsigned 64,16 -m /f:0.0625 /o:-780 /max:780 /d:0
+
+[UDS_PhyDiagReq_RWA]
+ID=715h
+Type=FDStandard
+Len=64
+Var=B000_UDS_PhyDiagReq_RWA unsigned 0,64 -m
+
+{RECEIVE}
+
+[RWA_1]
+ID=137h
+Type=FDStandard
+Len=8
+CycleTime=10
+Var=B000_RWA_0x137_CheckSum unsigned 0,8 -m
+Var=B008_RWA_0x137_CounterState unsigned 8,8 -m
+Var=B016_RWA_PinionAg_Fdbk_From137 unsigned 16,16 -m /f:0.009375 /o:-117 /max:100 /d:6
+
+[RWA_2]
+ID=147h
+Type=FDStandard
+Len=32
+CycleTime=10
+Var=B000_RWA_0x147_CheckSum unsigned 0,16 -m
+Var=B016_RWA_0x147_RollingCounter unsigned 16,8 -m
+Var=B024_RWA_PinionAg_Fdbk_Duplicate unsigned 24,16 -m /f:0.009375 /o:-117 /max:100 /d:6
+Var=B047_RWA_ActiveState bit 47,1 -m
+Var=B184_RWA_PinionAg_Fdbk unsigned 184,16 -m /f:0.005 /o:-100 /max:100 /d:3
+Var=B240_REF_Estimated_12V_A unsigned 240,8 -m /f:0.1 /max:25.5 /d:1
+Var=B248_REF_Estimated_12V_B unsigned 248,8 -m /f:0.1 /max:25.5 /d:1
+
+[UDS_DiagResp_RWA]
+ID=71Dh
+Type=FDStandard
+Len=64
+Var=B000_UDS_DiagResp_RWA unsigned 0,64 -m

@@ -45,7 +45,20 @@ def load_sym_with_fd(content):
     fd_names = set()
     name = None
     lines = []
+    in_enum = False
     for line in content.splitlines():
+        if re.match(r'^\s*Enum\s*=', line):
+            in_enum = True
+        if in_enum:
+            # cantools rejects -b after enums. Find the closing parenthesis
+            # outside labels/comments, including on multiline definitions.
+            for token in re.finditer(r'"(?:\\.|[^"\\])*"|//.*|[()]', line):
+                if token.group() == ')':
+                    end = token.end()
+                    line = line[:end] + re.sub(r'^([ \t]*)-b(?=[ \t]*(?://|$))',
+                                              r'\1', line[end:])
+                    in_enum = False
+                    break
         if re.match(r'^\s*(?:Var|Sig)\s*=', line):
             # Some SYM exporters use /O: for offset; cantools expects /o:.
             # Preserve quoted labels and comments verbatim.

@@ -1,0 +1,71 @@
+﻿FormatVersion=6.0 // Do not edit this line!
+Title="HL Mando Rev2 EMB - Current"
+
+{ENUMS}
+Enum=Pri_BCU_RoleSts(0="Secondary BCU", 1="Primary BCU")
+Enum=ON_OFF(0="OFF", 1="ON")
+Enum=EPB_Request(5="None", 27="Apply", 54="Release")
+Enum=EPB_Status(27="Apply_Complete", 54="Release_Complete", 113="Applying", 142="Releasing")
+
+{SENDRECEIVE}
+
+[EMB_CMD_PRI]
+ID=02Ah
+Type=FDStandard
+Len=48
+Var=B000_Pri_EMB_BrkSysPwrMd unsigned 0,1 /e:ON_OFF
+Var=B001_Pri_EMB_BrkReqActv unsigned 1,1
+Var=B002_Pri_EPBApplyRelReq unsigned 2,6 /e:EPB_Request
+Var=B008_Pri_EMBClmpFrcReqVldLF unsigned 8,1
+Var=B009_Pri_EMBClmpFrcReqVldLR unsigned 9,1
+Var=B010_Pri_EMBClmpFrcReqVldRF unsigned 10,1
+Var=B011_Pri_EMBClmpFrcReqVldRR unsigned 11,1
+Var=B016_Pri_EMBClmpFrcReqLF unsigned 16,17 /u:N
+Var=B040_Pri_EMBClmpFrcReqLR unsigned 40,17 /u:N
+Var=B064_Pri_EMBClmpFrcReqRF unsigned 64,17 /u:N
+Var=B088_Pri_EMBClmpFrcReqRR unsigned 88,17 /u:N
+Var=B312_Pri_LongAccelVal unsigned 312,16 /u:g /f:0.001
+Var=B344_Pri_BrkSysRefVel unsigned 344,14 /f:0.015625
+
+[BCU_INFO_PRI]
+ID=02Bh
+Type=FDStandard
+Len=8
+Var=B000_Pri_BCUSysDfctSts unsigned 0,4 /max:1
+Var=B004_Pri_BCURoleSts unsigned 4,4 /max:1 /e:Pri_BCU_RoleSts
+
+[EMB_STATUS_01A]
+ID=01Ah
+Type=FDStandard
+Len=24
+Var=B000_EMB_ActPosRaw unsigned 0,15
+Var=B015_EMB_ClmpLoadRaw signed 15,9
+Var=B032_EMB_EPBSts unsigned 32,8 /e:EPB_Status
+Var=B072_AliveCount unsigned 72,8
+
+[EMB_STATUS_01B]
+ID=01Bh
+Type=FDStandard
+Len=24
+Var=B000_EMB_ActPosRaw unsigned 0,15
+Var=B015_EMB_ClmpLoadRaw signed 15,9
+Var=B032_EMB_EPBSts unsigned 32,8 /e:EPB_Status
+Var=B072_AliveCount unsigned 72,8
+
+[EMB_STATUS_01C]
+ID=01Ch
+Type=FDStandard
+Len=24
+Var=B000_EMB_ActPosRaw unsigned 0,15
+Var=B015_EMB_ClmpLoadRaw signed 15,9
+Var=B032_EMB_EPBSts unsigned 32,8 /e:EPB_Status
+Var=B072_AliveCount unsigned 72,8
+
+[EMB_STATUS_01D]
+ID=01Dh
+Type=FDStandard
+Len=24
+Var=B000_EMB_ActPosRaw unsigned 0,15
+Var=B015_EMB_ClmpLoadRaw signed 15,9
+Var=B032_EMB_EPBSts unsigned 32,8 /e:EPB_Status
+Var=B072_AliveCount unsigned 72,8

@@ -9,7 +9,9 @@ from cantools.database.can import Message, Signal
 from cantools.database.conversion import BaseConversion
 from src.graph_labels import signal_labels, update_realtime_labels
 from src.graph_realtime import SignalGraphWindow
+from src.graph_log import LogGraphWindow
 from src.log_viewer import LogViewerWindow
+from src.main_window import UniversalCANMonitor
 from src.session_graph import graph_state, restore_graph
 
 
@@ -32,6 +34,47 @@ class GraphLabelsTest(unittest.TestCase):
                     for key, can_id in [('a', 0x100), ('b', 0x200)]}
         self.assertEqual(signal_labels(metadata),
                          dict(a='B1:Same[0x100].Value', b='B1:Same[0x200].Value'))
+
+    def test_database_unicode_survives_realtime_and_log_tags(self):
+        for encoding, unit, choice in [
+                ('utf-8', '°/s · ℃ · Ω · µm · ± · ²', '온도 <정상> & ±1°'),
+                ('utf-8-sig', '°/s · ℃ · Ω · µm · ± · ²', '온도 <정상> & ±1°'),
+                ('cp1252', '°/s · µm · ± · ²', 'Ready <OK> & ±1°')]:
+            with self.subTest(encoding=encoding):
+                content = f'''VERSION ""
+NS_ :
+BS_:
+BU_: ECU
+BO_ 291 Angle: 1 ECU
+ SG_ Angle : 0|8@1+ (1,0) [0|255] "{unit}" ECU
+VAL_ 291 Angle 1 "{choice}";
+'''
+                db = UniversalCANMonitor.parse_database_bytes(
+                    None, 'unicode.dbc', content.encode(encoding))
+                signal = db.get_message_by_name('Angle').get_signal_by_name('Angle')
+                self.assertEqual(signal.unit, unit)
+                self.assertEqual(str(signal.choices[1]), choice)
+                for realtime in (True, False):
+                    with self.subTest(realtime=realtime):
+                        if realtime:
+                            graph = SignalGraphWindow(['Angle'])
+                            graph.update_data('Angle', 1, 1, signal.unit)
+                        else:
+                            graph = LogGraphWindow({'Angle': dict(times=[1], values=[1], unit=signal.unit)})
+                        self.addCleanup(graph.deleteLater)
+                        self.addCleanup(graph.close)
+                        graph.display_names['Angle'] = '각도 <Angle> & ±1°'
+                        # Enum lookup uses the actual database signal in both graph types.
+                        if realtime:
+                            graph._bound_signals['Angle'] = (db.messages[0], signal)
+                        else:
+                            graph.plot_data['Angle']['choices'] = signal.choices
+                        graph.add_tag_for_signal('Angle', 1)
+                        tag = graph.active_tags[('Angle', 1.0)][1]
+                        text = tag.toPlainText()
+                        self.assertIn('각도 <Angle> & ±1°', text)
+                        self.assertIn(unit, text)
+                        self.assertIn(choice, text)
 
     def test_realtime_names_restore_while_preserving_custom_labels_and_keys(self):
         keys = ['B1:100:0:Speed', 'B1:200:0:Temperature']

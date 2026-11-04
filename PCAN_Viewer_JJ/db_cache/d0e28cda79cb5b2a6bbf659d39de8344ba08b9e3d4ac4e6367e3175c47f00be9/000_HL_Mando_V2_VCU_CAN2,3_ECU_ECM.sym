@@ -1,0 +1,213 @@
+﻿FormatVersion=6.0 // Do not edit this line!
+Title="Untitled"
+
+{ENUMS}
+Enum=ECM_Locking(0="Unlocking", 1="Locking")
+Enum=VtSig_R_ST1_MOTOR_OVERSPEED_FAUL(1="Fault", 0="None")
+Enum=VtSig_R_ST1_DERATING(1="Derating", 0="Normal")
+Enum=VtSig_R_ST1_READY(1="Run", 0="Idle")
+Enum=VtSig_R_ST1_MOTOR_DIRECTION(1="Right", 0="Left")
+Enum=VtSig_R_ST1_GEAR(2="Reverse", 1="Forward", 0="Neutral")
+Enum=VtSig_R_ST1_ECO(1="Activated", 0="Not_activated")
+Enum=VtSig_R_ST1_EABS(1="Active", 0="Inactive")
+Enum=VtSig_R_ST1_DRVMODE(2="Mode3", 1="Mode2", 0="Mode1")
+Enum=VtSig_R_ST1_DIR_ROT(1="CW", 0="CCW")
+Enum=VtSig_R_CMD_CONTROL_MODE(12="RpmMode", 10="TorqueMode", 5="ThrottleMode", 0="None")
+Enum=VtSig_R_CMD_CONTACTOR(1="Short", 0="Open")
+Enum=VtSig_R_CMD_CAN_GEAR_CTRL(1="Valid", 0="Invalid")
+Enum=VtSig_R_CMD_CAN_BRAKE(1="Brake", 0="No_Brake")
+
+{SENDRECEIVE}
+
+[ECU_STR_SYS_CMD]
+ID=500h
+CycleTime=10
+Var=B00_Alive_Counter unsigned 0,4
+Var=B04_ECM_Locking_L_Stat unsigned 4,2 /max:1 /e:ECM_Locking
+Var=B06_ECM_Locking_R_Stat unsigned 6,2 /max:1 /e:ECM_Locking
+Var=B08_VCU_Control_Mode unsigned 8,2
+Var=B12_VCU_StrCtrl_Mode unsigned 12,4
+Var=B16_Control_ECM_L unsigned 16,2
+Var=B18_ControlMode_L unsigned 18,2
+Var=B20_VehicleSpeed_L unsigned 20,16 /u:Km/h /f:0.01
+Var=B40_Control_ECM_R unsigned 40,2
+Var=B42_ControlMode_R unsigned 42,2
+Var=B44_VehicleSpeed_R unsigned 44,16 /u:Km/h /f:0.01
+
+[ECU_STR_L_ANGLE_CMD]
+ID=501h
+CycleTime=10
+Var=B00_ECM_L_Angle_CMD signed 0,16 /u:deg /f:0.01
+Var=B16_Str_L_AngVel_En unsigned 16,1
+Var=B20_ECM_L_Ang_Vel unsigned 20,10 /u:deg/s /max:1
+Var=B30_ECM_L_Ang_Acc unsigned 30,10 /u:deg/s^2 /max:1
+Var=B40_ECM_L_Ang_Dec unsigned 40,10 /u:deg/s^2 /max:1
+
+[ECU_STR_R_ANGLE_CMD]
+ID=502h
+CycleTime=10
+Var=B00_ECM_R_Angle_CMD signed 0,16 /u:deg /f:0.01
+Var=B16_Str_R_AngVel_En unsigned 16,1
+Var=B20_ECM_R_Ang_Vel unsigned 20,10 /max:1
+Var=B30_ECM_R_Ang_Acc unsigned 30,10 /max:1
+Var=B30_ECM_R_Ang_Dec unsigned 40,10 /max:1
+
+[ECU_STR_MAIN_DEV_ST]
+ID=510h
+CycleTime=10
+Var=B00_Alive_Counter unsigned 0,4
+Var=B04_ECM_L_Sync unsigned 4,2
+Var=B06_ECM_R_Sync unsigned 6,2
+Var=B08_ECU_PWR_VOLT unsigned 8,16 /u:V /f:0.001
+Var=B24_ECM_L_Angle signed 24,16 /u:deg /f:0.01
+Var=B40_Dumy_3 unsigned 40,8
+Var=B48_ECM_R_Angle signed 48,16 /u:deg /f:0.01
+
+[ECU_EMB_EPB_REQUEST]
+ID=311h
+CycleTime=50
+Var=B00_R_EPB_Parking_R unsigned 0,8
+Var=B08_R_EPB_Parking_L unsigned 8,8
+Var=B16_R_EPB_Parking_ALL unsigned 16,8
+Var=B24_R_EPB_Flag_EPB_R unsigned 24,8
+Var=B32_R_EPB_Flag_EPB_L unsigned 32,8
+Var=B40_R_EPB_Flag_EPB_ALL unsigned 40,8
+Var=B48_R_EPB_Clamping_Force_R unsigned 48,8 /u:N /f:100
+Var=B56_R_EPB_Clamping_Force_L unsigned 56,8 /u:N /f:100
+
+[ECU_EMB_EPB_STATUS]
+ID=376h
+CycleTime=100
+Var=B00_R_EPB_FINAL_STATES_L unsigned 0,8
+Var=B08_R_EPB_FINAL_STATES_R unsigned 8,8
+Var=B16_R_EPB_FAULT_CALIPER_R unsigned 16,1
+Var=B17_R_EPB_FAULT_CALIPER_L unsigned 17,1
+Var=B18_R_EPB_FAULT_ECU_ERR unsigned 18,1
+Var=B19_R_EPB_FAULT_COMM_ERR unsigned 19,1
+Var=B20_R_EPB_FAULT_UNKNOWN unsigned 20,1
+Var=B21_R_EPB_FAULT_NA unsigned 21,3
+Var=B24_R_EPB_MANUAL_PARKING_KEY unsigned 24,8
+
+[ECU_EMB_BRK_CMD]
+ID=154h
+CycleTime=10
+Var=B00_L_DBS_Valid unsigned 0,8
+Var=B08_L_DBS_Work_Mode unsigned 8,8
+Var=B16_L_DBS_HP_Pressure unsigned 16,16 /u:Mpa /max:25.5
+Var=B32_R_DBS_Valid unsigned 32,8
+Var=B40_R_DBS_Work_Mode unsigned 40,8
+Var=B48_R_DBS_HP_Pressure unsigned 48,16 /u:Mpa /max:25.5
+
+[ECU_EMB_BRK_STATUS]
+ID=142h
+CycleTime=10
+Var=B00_L_SystemStatus unsigned 0,2
+Var=B24_L_MasterCylinderPress unsigned 16,16
+Var=B32_R_SystemStatus unsigned 32,2
+Var=B48_R_MasterCylinderPress unsigned 48,16
+
+[R_ST3_MC2VCU]
+ID=663h
+Len=8
+Var=R_ST3_BUS_VOLTAGE unsigned 0,16 /u:V /f:0.1
+Var=R_ST3_BUS_CURRENT unsigned 16,16 /u:A
+
+[R_ST2_MC2VCU]
+ID=662h
+Len=8
+Var=R_ST2_TORQUE signed 16,16 /u:Nm /f:0.1 /max:3276.7
+Var=R_ST2_RPM signed 48,16 /u:Rpm
+Var=R_ST2_PH_CURRENT unsigned 32,16 /u:A /f:0.1
+Var=R_ST2_CTRL_DATA signed 0,16
+
+[R_ST1_MC2VCU]
+ID=661h
+Len=8
+Var=R_ST1_MOTOR_OVERSPEED_FAULT bit 44,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_DERATING bit 23,1 /e:VtSig_R_ST1_DERATING
+Var=R_ST1_CONTROLLER_FAULT bit 24,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_CAN_CMD_TIMEOUT_FAULT bit 41,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_BUS_CURRENT_OC_FAULT bit 42,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_UNDERVOLTAGE_FAULT bit 25,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_READY bit 16,1 /e:VtSig_R_ST1_READY
+Var=R_ST1_PH_CURRENT_OC_FAULT bit 43,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_OVERVOLTAGE_FAULT bit 26,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_MOTOR_TEMP unsigned 56,8 /u:degC /o:-40 /max:210
+Var=R_ST1_MOTOR_STALL bit 27,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_MOTOR_OVERHEAT_FAULT bit 46,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_MOTOR_DIRECTION bit 22,1 /e:VtSig_R_ST1_MOTOR_DIRECTION
+Var=R_ST1_MOT_HALL_FAULT bit 40,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_GEAR unsigned 0,2 /e:VtSig_R_ST1_GEAR
+Var=R_ST1_ECO bit 17,1 /e:VtSig_R_ST1_ECO
+Var=R_ST1_EABS bit 18,1 /e:VtSig_R_ST1_EABS
+Var=R_ST1_DRVMODE unsigned 2,3 /e:VtSig_R_ST1_DRVMODE
+Var=R_ST1_DIR_ROT bit 21,1 /e:VtSig_R_ST1_DIR_ROT
+Var=R_ST1_CTRL_TEMP unsigned 48,8 /u:degC /o:-40 /max:210
+Var=R_ST1_CTRL_OVERHEAT_FAULT bit 47,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=R_ST1_CTRL_MODE unsigned 28,4
+
+[R_CMD_VCU2MC]
+ID=651h
+Len=8
+Var=R_CMD_GEAR unsigned 0,2 /e:VtSig_R_ST1_GEAR
+Var=R_CMD_ECO bit 17,1 /e:VtSig_R_ST1_ECO
+Var=R_CMD_EABS bit 18,1 /e:VtSig_R_ST1_ECO
+Var=R_CMD_CONTROL_MODE unsigned 28,4 /e:VtSig_R_CMD_CONTROL_MODE
+Var=R_CMD_CONTROL_DATA_RED signed 48,16
+Var=R_CMD_CONTROL_DATA signed 32,16
+Var=R_CMD_CONTACTOR bit 23,1 /e:VtSig_R_CMD_CONTACTOR
+Var=R_CMD_CAN_GEAR_CTRL bit 2,1 /e:VtSig_R_CMD_CAN_GEAR_CTRL
+Var=R_CMD_CAN_BRAKE bit 3,1 /e:VtSig_R_CMD_CAN_BRAKE
+
+[L_ST3_MC2VCU]
+ID=613h
+Len=8
+Var=L_ST3_BUS_VOLTAGE unsigned 0,16 /u:V /f:0.1
+Var=L_ST3_BUS_CURRENT unsigned 16,16 /u:A
+
+[L_ST2_MC2VCU]
+ID=612h
+Len=8
+Var=L_ST2_TORQUE signed 16,16 /u:Nm /f:0.1 /max:3276.7
+Var=L_ST2_RPM signed 48,16 /u:Rpm
+Var=L_ST2_PH_CURRENT unsigned 32,16 /u:A /f:0.1
+Var=L_ST2_CTRL_DATA signed 0,16
+
+[L_CMD_VCU2MC]
+ID=601h
+Len=8
+Var=L_CMD_GEAR unsigned 0,2 /e:VtSig_R_ST1_GEAR
+Var=L_CMD_ECO bit 17,1 /e:VtSig_R_ST1_ECO
+Var=L_CMD_EABS bit 18,1 /e:VtSig_R_ST1_ECO
+Var=L_CMD_CONTROL_MODE unsigned 28,4 /e:VtSig_R_CMD_CONTROL_MODE
+Var=L_CMD_CONTROL_DATA_RED signed 48,16
+Var=L_CMD_CONTROL_DATA signed 32,16
+Var=L_CMD_CONTACTOR bit 23,1 /e:VtSig_R_CMD_CONTACTOR
+Var=L_CMD_CAN_GEAR_CTRL bit 2,1 /e:VtSig_R_CMD_CAN_GEAR_CTRL
+Var=L_CMD_CAN_BRAKE bit 3,1 /e:VtSig_R_CMD_CAN_BRAKE
+
+[L_ST1_MC2VCU]
+ID=611h
+Len=8
+Var=L_ST1_MOTOR_OVERSPEED_FAULT bit 44,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_DERATING bit 23,1 /e:VtSig_R_ST1_DERATING
+Var=L_ST1_CONTROLLER_FAULT bit 24,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_CAN_CMD_TIMEOUT_FAULT bit 41,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_BUS_CURRENT_OC_FAULT bit 42,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_UNDERVOLTAGE_FAULT bit 25,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_READY bit 16,1 /e:VtSig_R_ST1_READY
+Var=L_ST1_PH_CURRENT_OC_FAULT bit 43,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_OVERVOLTAGE_FAULT bit 26,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_MOTOR_TEMP unsigned 56,8 /u:degC /o:-40 /max:210
+Var=L_ST1_MOTOR_STALL bit 27,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_MOTOR_OVERHEAT_FAULT bit 46,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_MOTOR_DIRECTION bit 22,1 /e:VtSig_R_ST1_MOTOR_DIRECTION
+Var=L_ST1_MOT_HALL_FAULT bit 40,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_GEAR unsigned 0,2 /e:VtSig_R_ST1_GEAR
+Var=L_ST1_ECO bit 17,1 /e:VtSig_R_ST1_ECO
+Var=L_ST1_EABS bit 18,1 /e:VtSig_R_ST1_EABS
+Var=L_ST1_DRVMODE unsigned 2,3 /e:VtSig_R_ST1_DRVMODE
+Var=L_ST1_DIR_ROT bit 21,1 /e:VtSig_R_ST1_DIR_ROT
+Var=L_ST1_CTRL_TEMP unsigned 48,8 /u:degC /o:-40 /max:210
+Var=L_ST1_CTRL_OVERHEAT_FAULT bit 47,1 /e:VtSig_R_ST1_MOTOR_OVERSPEED_FAUL
+Var=L_ST1_CTRL_MODE unsigned 28,4
