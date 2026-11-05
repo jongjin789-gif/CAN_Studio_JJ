@@ -5,6 +5,7 @@ import threading
 import can
 
 from src.crc_utils import calculate_crc16_ccitt_false
+from src.db_frame_format import frame_is_extended
 from src.tx_counter import counter_payload, latest_rx_payload
 from src.tx_schedule import bus_schedule
 
@@ -22,6 +23,8 @@ class TxRuntime:
         self.schedule = bus_schedule(self.main, packet['bus'])
         self.sent = 0
         self.last_payload = bytes(packet['data'])
+        self.is_extended = frame_is_extended(
+            packet['id'], packet.get('is_extended_id'), self.message)
 
     def send(self, record=False):
         with self.lock, self.schedule.lock:
@@ -39,7 +42,7 @@ class TxRuntime:
                 crc = calculate_crc16_ccitt_false(body + (0xF800 + p['id']).to_bytes(2, 'little'))
                 payload = (crc.to_bytes(2, 'little') + body).ljust(p['length'], b'\0')[:p['length']]
             frame = can.Message(arbitration_id=p['id'], data=payload,
-                                is_extended_id=p['id'] > 0x7FF, is_fd=p['is_fd'],
+                                is_extended_id=self.is_extended, is_fd=p['is_fd'],
                                 bitrate_switch=p.get('is_brs', False))
             self.bus.send(frame)
             # Commit counters only after the driver accepted the frame.

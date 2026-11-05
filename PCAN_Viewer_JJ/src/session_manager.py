@@ -295,7 +295,7 @@ class SessionManager(QObject):
             # Write before stopping/closing anything; a disk failure leaves the recording open.
             folder = self.directory / 'Log'
             target = folder / f'CAN_Log_{uuid.uuid4().hex}.trc'
-            atomic_write(target, ('\n'.join(record.log_lines) + '\n').encode('utf-8'))
+            record._write_trc(target)
             record.is_saved = True
 
     def new_screen(self):

@@ -1,3 +1,4 @@
+import re
 from src.error_dialog import diagnostic_details
 from PyQt5.QtCore import QThread, pyqtSignal
 import datetime
@@ -240,6 +241,21 @@ class LogParserThread(QThread):
                             data = bytes.fromhex("".join(t.rstrip('h') for t in tokens[7:7+dlc]))
                             # Infer FD from DLC or BRS flag
                             msg_type = 'FD' if dlc > 8 or (len(tokens) > 7+dlc and 'BRS' in tokens[7+dlc:]) else 'DT'
+                            id_text = tokens[3]
+
+                        # TRC 1.2 / 1.3: "1) 1059.900 1 Rx 0300 - 8 00 ..." (bus, direction, ID, reserved)
+                        elif len(tokens) > 5 and tokens[0].endswith(')') and tokens[2].isdigit() and tokens[3] in ('Rx', 'Tx'):
+                            bus_num = int(tokens[2])
+                            id_text = tokens[4]
+                            can_id = int(id_text.rstrip('h'), 16)
+                            idx = 6 if tokens[5] == '-' else 5
+                            dlc = int(tokens[idx])
+                            if dlc > 8 or 'RTR' in tokens[idx + 1:idx + 2]:
+                                continue  # Classic-only formats; remote frames carry no data.
+                            data = bytes.fromhex("".join(tokens[idx + 1:idx + 1 + dlc]))
+                            if len(data) != dlc:
+                                continue
+                            msg_type = 'DT'
 
                         # Format 2 & 4: PCAN-Explorer 7, PCAN-View 5, or this app's own format
                         # - PE7 / App's: "1 0.276 FB 1 0035 Rx - 13 ..."
@@ -249,11 +265,13 @@ class LogParserThread(QThread):
                             # Distinguish formats by checking for a bus number (single digit at tokens[3])
                             if len(tokens) > 7 and tokens[3].isdigit() and len(tokens[3]) == 1 and tokens[5] in ('Rx', 'Tx'): # Format with bus number
                                 bus_num = int(tokens[3])
+                                id_text = tokens[4]
                                 can_id = int(tokens[4].rstrip('h'), 16)
                                 dlc = int(tokens[7])
                                 dlc, data = self._parse_payload(dlc, tokens[8:], msg_type)
                             elif tokens[4] in ('Rx', 'Tx'): # Format without bus number
                                 bus_num = 1
+                                id_text = tokens[3]
                                 can_id = int(tokens[3].rstrip('h'), 16)
                                 dlc = int(tokens[5])
                                 dlc, data = self._parse_payload(dlc, tokens[6:], msg_type)
@@ -263,16 +281,32 @@ class LogParserThread(QThread):
                         # Format 3: PCAN-View (e.g., "1) 123.4 Rx 0100 8 00 ...")
                         elif len(tokens) > 4 and tokens[2] in ('Rx', 'Tx'):
                             bus_num = 1
+                            id_text = tokens[3]
                             can_id = int(tokens[3].rstrip('h'), 16)
                             dlc = int(tokens[4])
                             data = bytes.fromhex("".join(tokens[5:5+dlc]))
                             msg_type = 'FD' if dlc > 8 else 'DT'
+
+                        # TRC 1.0: "1) 1841 0001 8 00 ..." (no bus or direction column)
+                        elif (len(tokens) > 3 and tokens[0].endswith(')') and tokens[3].isdigit()
+                              and int(tokens[3]) <= 8 and re.fullmatch(r'[0-9A-Fa-f]{1,8}', tokens[2])):
+                            bus_num = 1
+                            id_text = tokens[2]
+                            can_id = int(id_text, 16)
+                            dlc = int(tokens[3])
+                            data = bytes.fromhex("".join(tokens[4:4 + dlc]))
+                            if len(data) != dlc:
+                                continue
+                            msg_type = 'DT'
                         else:
                             continue
                         
                         log_line_data = {"timestamp": ts, "offset_ms": offset_ms, "type": msg_type, "bus": bus_num, "can_id": can_id, "dlc": dlc, "data": data}
                         raw_log_lines.append(log_line_data)
                         log_line_data['source_line'] = i
+                        # PEAK traces pad 29-bit IDs to 8 hex digits and 11-bit IDs to 3-4 digits.
+                        id_digits = id_text.rstrip('h')
+                        log_line_data['is_extended_id'] = len(id_digits) > 4 or can_id > 0x7FF
                         if logger_columns:
                             log_line_data['format'] = 'cl2000'
                             log_line_data['is_extended_id'] = logger_extended

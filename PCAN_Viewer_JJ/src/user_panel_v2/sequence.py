@@ -354,7 +354,8 @@ class SequenceControl(QWidget):
                               is_extended_id=p.get("is_extended_id", p["id"] > 0x7FF),
                               is_fd=p.get("is_fd", False), bitrate_switch=p.get("is_brs", False), check=True)
             self.owner.main_window.buses[p["bus"]].send(msg)
-            self.owner.main_window.record_tx_activity(p["bus"], p["id"], payload, msg.is_fd)
+            self.owner.main_window.record_tx_activity(p["bus"], p["id"], payload, msg.is_fd,
+                                                      is_ext=msg.is_extended_id)
             self.write(self.step_log("송신 완료"))
             self.remaining -= 1
             self.timer.start(int(p.get("cycle", 0)) if self.remaining else 0)

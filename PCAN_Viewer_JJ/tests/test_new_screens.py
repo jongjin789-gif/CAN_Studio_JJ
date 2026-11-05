@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import QApplication, QDialog
 from cantools.database.can import Database, Message, Signal
 from src.main_window import UniversalCANMonitor
 from src.session_manager import SessionManager
+from src.record_window import RecordWindow
+from src.session_storage import write_session
 
 
 class NewScreenTest(unittest.TestCase):
@@ -129,6 +131,61 @@ class NewScreenTest(unittest.TestCase):
         self.assertIs(self.main.user_panel_window, panel)
         self.assertEqual(self.main.list_db_files[4].count(), 1)
         self.assertEqual(self.main.tx_panel.tree.topLevelItemCount(), 1)
+
+    def start_recording(self):
+        recorder = RecordWindow()
+        recorder.show()
+        recorder.add_log_entry(100.0, 0x123, b'\x01', True, False, False, True)
+        recorder.add_log_entry(100.5, 0x124, b'\x02', False, False, False, False)
+        self.main.record_window = recorder
+        self.addCleanup(recorder.deleteLater)
+        return recorder
+
+    def assert_record_preserved(self):
+        logs = list((Path(self.temp.name) / 'Log').glob('*.trc'))
+        self.assertEqual(len(logs), 1)
+        text = logs[0].read_text(encoding='utf-8')
+        self.assertIn(';$STARTTIME=', text)
+        self.assertIn('00000123 Rx', text)
+        self.assertIn('500.000', text)
+        self.assertIn('0124 Tx', text)
+
+    def test_new_screen_preserves_streamed_recording(self):
+        recorder = self.start_recording()
+        self.assertTrue(self.main.session.new_screen())
+        self.assert_record_preserved()
+        self.assertFalse(Path(recorder.temp_path).exists())
+
+    def test_session_load_preserves_streamed_recording(self):
+        path = Path(self.temp.name) / 'saved.pjjsettings'
+        write_session(path, self.main.session.capture())
+        recorder = self.start_recording()
+        self.assertTrue(self.main.session.load(path))
+        self.assert_record_preserved()
+        self.assertFalse(Path(recorder.temp_path).exists())
+
+    def test_main_close_cancels_when_record_save_fails(self):
+        self.main.show()
+        recorder = self.start_recording()
+        with patch.object(recorder, '_write_trc', side_effect=PermissionError('denied')), \
+                patch('src.record_window.show_error'), \
+                patch.object(self.main.session, 'stop_all') as stop:
+            self.assertFalse(self.main.close())
+        stop.assert_not_called()
+        self.assertTrue(self.main.isVisible())
+        self.assertTrue(recorder.isVisible())
+        self.assertTrue(Path(recorder.temp_path).exists())
+        recorder.on_btn_close_clicked()
+
+    def test_failed_preservation_keeps_recording_and_workspace(self):
+        recorder = self.start_recording()
+        with patch.object(recorder, '_write_trc', side_effect=OSError('disk full')):
+            self.assertFalse(self.main.session.new_screen())
+        self.assertIs(self.main.record_window, recorder)
+        self.assertFalse(recorder.is_saved)
+        self.assertTrue(recorder.isVisible())
+        self.assertTrue(Path(recorder.temp_path).exists())
+        recorder.on_btn_close_clicked()
 
 
 if __name__ == '__main__':

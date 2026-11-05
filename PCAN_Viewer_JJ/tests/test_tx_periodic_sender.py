@@ -45,7 +45,7 @@ class MainPeriodicSenderTest(unittest.TestCase):
         self.main = SimpleNamespace(
             buses={b: SimpleNamespace(send=lambda frame, b=b: send(b, frame)) for b in (1, 2)},
             bus_capabilities={b: {'is_fd': True} for b in (1, 2)},
-            record_tx_activity=lambda *args: self.records.append((threading.get_ident(), args)),
+            record_tx_activity=lambda *args, **kwargs: self.records.append((threading.get_ident(), args)),
             log_bus_event=Mock())
         self.db = {b: {message.frame_id: message} for b in (1, 2)}
         panel = TxPanel(self.main.buses, self.db)

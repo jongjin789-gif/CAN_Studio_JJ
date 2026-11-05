@@ -147,7 +147,8 @@ class PacketRuntime:
             payload = self._send_locked(data_override, data_mask)
         if record and hasattr(self.main, 'record_tx_activity'):
             p = self.packet
-            self.main.record_tx_activity(p['bus'], p['id'], payload, p['is_fd'])
+            self.main.record_tx_activity(p['bus'], p['id'], payload, p['is_fd'],
+                                         is_ext=p.get('is_extended_id', p['id'] > 0x7FF))
         return payload
 
     def _send_locked(self, data_override=None, data_mask=None):

@@ -7,6 +7,7 @@ import math
 import time
 import uuid
 import queue
+from types import SimpleNamespace
 from contextlib import ExitStack
 from .periodic_sender import PeriodicSender
 from PyQt5.QtCore import Qt, QTimer, QRect, QEvent, pyqtSignal, QPoint, QSize
@@ -3021,7 +3022,8 @@ class UserPanelWindow(QWidget):
                     'WARN')
             if hasattr(self.main_window, 'record_tx_activity'):
                 self.main_window.record_tx_activity(packet['bus'], packet['id'], payload,
-                                                    packet['is_fd'], timestamp)
+                                                    packet['is_fd'], timestamp,
+                                                    is_ext=packet.get('is_extended_id', packet['id'] > 0x7FF))
         if self._periodic_dropped_records:
             self.log_system(f'화면 처리 지연으로 TX 기록 {self._periodic_dropped_records}개 생략 (송신은 계속됨)', 'WARN')
             self._periodic_dropped_records = 0
@@ -3397,9 +3399,73 @@ class UserPanelWindow(QWidget):
             return
         self._load_package_file(path)
 
-    def _load_panel_data(self, data):
+    @staticmethod
+    def _validate_panel_data(data):
+        """패널 상태를 바꾸기 전에 파일 내용을 먼저 검증합니다(실패 시 기존 상태 유지)."""
         if not isinstance(data, dict):
             raise ValueError("Invalid panel file")
+        for field in ('init_steps', 'widgets', 'tx_packets'):
+            entries = data.get(field, [])
+            if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+                raise ValueError(f'Invalid panel {field}')
+        validate_steps(copy.deepcopy(data.get('init_steps', [])), allow_empty=True)
+        pages = data.get('pages') or [dict(id='default', name='페이지 1')]
+        if not isinstance(pages, list) or any(not isinstance(p, dict) or 'id' not in p for p in pages):
+            raise ValueError('Invalid panel pages')
+        page_ids = [p['id'] for p in pages]
+        if (any(not isinstance(pid, str) or not pid for pid in page_ids)
+                or len(set(page_ids)) != len(page_ids)
+                or any(not isinstance(p.get('name'), str) or not p['name'].strip() for p in pages)):
+            raise ValueError('Invalid panel pages')
+        for field, id_key in (('widgets', 'id'), ('tx_packets', 'packet_id')):
+            ids = [entry[id_key] for entry in data.get(field, []) if id_key in entry]
+            if any(not isinstance(ident, str) or not ident for ident in ids) or len(set(ids)) != len(ids):
+                raise ValueError(f'Invalid panel {field} IDs')
+        try:
+            for packet in data.get('tx_packets', []):
+                # Counter/CRC signal compatibility depends on the bundled DB;
+                # validate the frame itself before replacing any live state.
+                frame = copy.deepcopy(packet)
+                frame.pop('signal_counters', None)
+                validate_packet(frame, {})
+            for cfg in data.get('widgets', []):
+                if not isinstance(cfg.get('binding', {}), dict):
+                    raise ValueError('Invalid panel binding')
+                for binding in command_bindings(cfg):
+                    if not isinstance(binding, dict):
+                        raise ValueError('Invalid panel command binding')
+                if cfg.get('widget_type') == 'sequence':
+                    binding = cfg.get('binding', {})
+                    validate_steps(binding.get('sequence_steps', []), allow_empty=True)
+                    validate_steps(binding.get('sequence_failure_steps', []), actions_only=True, allow_empty=True)
+        except (KeyError, TypeError, AttributeError, OverflowError) as exc:
+            raise ValueError('Invalid panel packet or widget') from exc
+        grid = data.get("grid", {})
+        if not isinstance(grid, dict) or not isinstance(data.get('channel_settings', {}), dict):
+            raise ValueError('Invalid panel settings')
+        for key in ('rows', 'cols', 'cell_size'):
+            if key in grid:
+                int(grid[key])
+
+    def _preflight_panel_data(self, data):
+        """실제 UI 구성까지 격리된 창에서 검증해 기존 패널/DB를 보호합니다."""
+        self._validate_panel_data(data)
+        from src.session_storage import validate_panel
+        # Parent references and cycles must be rejected before creating Qt widgets.
+        structural = copy.deepcopy(data)
+        for cfg in structural.get('widgets', []):
+            cfg.setdefault('id', str(uuid.uuid4()))
+        validate_panel(structural)
+        proxy = SimpleNamespace(buses={}, database_content_signature=data.get('dbc_signature'))
+        staged = UserPanelWindow(proxy, {})
+        try:
+            staged._load_panel_data(copy.deepcopy(data))
+        finally:
+            staged.close()
+            staged.deleteLater()
+
+    def _load_panel_data(self, data):
+        self._validate_panel_data(data)
         self.setWindowTitle(str(data.get('title') or 'User Panel'))
         self.dbc_signature = normalized_signature(copy.deepcopy(data.get('dbc_signature', database_signature(self.main_window))))
 
@@ -3474,6 +3540,8 @@ class UserPanelWindow(QWidget):
 
         try:
             panel_data, db_paths_by_bus = load_bundle(path)
+            # DB를 교체하기 전에 패널 내용을 검증해, 손상된 파일로 DB만 바뀌는 상황을 막습니다.
+            self._preflight_panel_data(panel_data)
             self.set_mode('standby')
             self.main_window.replace_db_files_by_bus(db_paths_by_bus)
             self._load_panel_data(panel_data)

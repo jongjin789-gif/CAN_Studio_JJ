@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QApplication
 from src.db_frame_format import load_sym_with_fd
 from src.user_panel_v2.dbc_identity import database_token
 from src.user_panel_v2.window import UserPanelWindow, _PACKAGE_FILTER
+from src.user_panel_v2.storage import save_bundle
 
 
 class PanelFileDialogTest(unittest.TestCase):
@@ -131,6 +132,32 @@ class PanelFileDialogTest(unittest.TestCase):
         load.assert_not_called()
         self.owner.replace_db_files_by_bus.assert_not_called()
         self.assertEqual(self.panel._panel_data(), before)
+
+    def test_malformed_packages_leave_panel_and_databases_unchanged(self):
+        invalid = [
+            dict(tx_packets=[None]),
+            dict(tx_packets=[{}]),
+            dict(widgets=[None]),
+            dict(widgets=[dict(id='bad', binding=None)]),
+            dict(widgets=[dict(id='bad', row='invalid')]),
+            dict(widgets=[dict(id='a'), dict(id='a')]),
+            dict(widgets=[dict(id='a', parent_id='b'), dict(id='b', parent_id='a')]),
+            dict(pages=[dict(id=[], name='Invalid')]),
+            dict(grid=None),
+        ]
+        before = copy.deepcopy(self.panel._panel_data())
+        before_messages = dict(self.messages[1])
+        for change in invalid:
+            with self.subTest(change=change):
+                bad = dict(before, title='Must not apply', **change)
+                package = save_bundle(str(self.folder / 'bad'), bad, {1: [str(self.source)]})
+                with patch.object(self.panel, '_authorize_communication', return_value=True), \
+                        patch('src.user_panel_v2.window.show_error') as error:
+                    self.panel._load_package_file(package)
+                error.assert_called_once()
+                self.owner.replace_db_files_by_bus.assert_not_called()
+                self.assertEqual(self.panel._panel_data(), before)
+                self.assertEqual(self.messages[1], before_messages)
 
     def test_cancelling_file_dialog_does_not_write_or_load(self):
         before = copy.deepcopy(self.panel._panel_data())

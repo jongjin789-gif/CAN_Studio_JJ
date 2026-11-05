@@ -901,7 +901,8 @@ class TxPacketItem(SortableTreeWidgetItem):
             self._sync_runtime(runtime)
             if hasattr(self.tx_panel.main_window, 'record_tx_activity'):
                 p = runtime.packet
-                self.tx_panel.main_window.record_tx_activity(p['bus'], p['id'], payload, p['is_fd'])
+                self.tx_panel.main_window.record_tx_activity(p['bus'], p['id'], payload, p['is_fd'],
+                                                             is_ext=runtime.is_extended)
         except Exception as exc:
             print(f'Tx Error: {exc}')
             if self.is_running:
@@ -997,7 +998,8 @@ class TxPanel(QWidget):
                                  f'최대 지연 {lateness:.1f} ms')
                 task.reported_missed = missed
             if hasattr(self.main_window, 'record_tx_activity'):
-                self.main_window.record_tx_activity(p['bus'], p['id'], payload, p['is_fd'], timestamp)
+                self.main_window.record_tx_activity(p['bus'], p['id'], payload, p['is_fd'], timestamp,
+                                                    is_ext=task.runtime.is_extended)
             if task.runtime.item._periodic_task is task:
                 changed.add(task)
         for task in changed:

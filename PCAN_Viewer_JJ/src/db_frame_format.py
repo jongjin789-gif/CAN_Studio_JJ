@@ -17,6 +17,15 @@ def compatible_signal_mapping(source, target, signal_names=None):
                for name in names)
 
 
+def frame_is_extended(can_id, explicit=None, db_message=None):
+    """Explicit flag first, then the DB definition, then the legacy ID-range guess."""
+    if explicit is not None:
+        return bool(explicit)
+    if db_message is not None and hasattr(db_message, 'is_extended_frame'):
+        return bool(db_message.is_extended_frame)
+    return int(can_id) > 0x7FF
+
+
 def is_fd_format(value):
     normalized = re.sub(r'[^a-z0-9]', '', str(value).lower())
     return normalized in {'fd', 'fdstandard', 'fdextended', 'fdcan', 'canfd',

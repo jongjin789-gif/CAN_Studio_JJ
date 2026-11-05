@@ -1,4 +1,4 @@
-# Universal CAN Monitor (R009)
+# Universal CAN Monitor (R012_1)
 
 아래 실행·빌드 명령은 프로젝트 루트 폴더에서 수행합니다.
 
@@ -29,13 +29,13 @@
 - **데이터 로깅 (Record)**: 실시간으로 수신되는 메시지를 `.trc` (Trace) 파일 포맷으로 저장 기능 제공.
 - **TRC 로그 뷰어 (Log Viewer)**: 저장된 `.trc` 로그 파일을 오프라인에서 불러와 DBC/SYM 파일을 기준으로 재해석(Parsing)하여 분석할 수 있는 내장 뷰어 제공.
 - **독립 뷰어 모드 (Log Viewer Mode)**: `PCAN_Viewer_JJ.pk` 설정 파일의 `"viewer_mode_only"` 값을 `true`로 변경하여 하드웨어 연결 및 송신(Tx) 기능이 숨겨진 뷰어 전용 UI로 전환할 수 있습니다. (뷰어 모드 시 기존 패킷/설정 데이터 덮어쓰기 보호)
-- **타이틀 바 버전 표시**: 실행 파일명과 `build_exe.py`의 `APP_VERSION = "R009"`에서 버전을 확인합니다. 소스 변경은 재빌드해야 실행 파일에 반영됩니다.
+- **타이틀 바 버전 표시**: 실행 파일명과 `build_exe.py`의 `APP_VERSION = "R012_1"`에서 버전을 확인합니다. 소스 변경은 재빌드해야 실행 파일에 반영됩니다.
 
 ---
 
 ## ⚙️ 시스템 요구 사항 및 설치 (Installation)
 
-R009 자동 테스트는 **Python 3.13** 환경에서 수행합니다. 새 개발 환경도 Python 3.13을 기준으로 구성하세요.
+R012_1 자동 테스트는 **Python 3.13** 환경에서 수행합니다. 새 개발 환경도 Python 3.13을 기준으로 구성하세요.
 
 ### 🪟 Windows 환경
 1. **사전 준비**: PEAK-System PCAN 드라이버가 설치되어 있어야 합니다. (PCAN-USB 등 연결 필요)
@@ -61,7 +61,7 @@ chmod +x install_linux.sh
 1. **프로그램 실행**:
    - Windows: 터미널에서 `venv_win\Scripts\activate` 입력 후 `python main.py` 실행
    - Linux (가상 CAN): 터미널에서 `source venv_linux/bin/activate && python3 main.py` 실행
-   - Linux (실제 CAN): 일반 사용자로 실행합니다. 인터페이스 설정에 권한이 필요하면 앱이 sudo 비밀번호를 묻고 해당 명령만 재시도합니다. 비밀번호는 실행 중 메모리에만 보관되며 파일이나 로그에는 저장하지 않습니다.
+   - Linux (실제 CAN): 일반 사용자로 실행합니다. 인터페이스 설정에 권한이 필요하면 앱이 sudo 비밀번호를 묻고 해당 명령만 재시도합니다. sudo 인증 캐시가 살아 있으면 다시 묻지 않습니다. 입력한 비밀번호는 연속 명령(down/up)을 위해 최대 60초만 메모리에 두고 버리며, 파일이나 로그에는 저장하지 않습니다. 각 명령은 10초 안에 끝나지 않으면 중단됩니다.
 
 2. **상세 사용법**:
    - 프로그램의 모든 기능에 대한 자세한 설명은 **MANUAL.md (사용자 매뉴얼)** 파일을 참고하세요.
@@ -111,13 +111,13 @@ chmod +x install_linux.sh
    python build_exe.py
    ```
 2. 빌드가 성공적으로 완료되면 프로젝트 폴더 내 `dist` 디렉토리 하위에 플랫폼별 배포 폴더가 생성됩니다.
-   - Windows: `dist/PCAN_Viewer_JJ_R009_win/PCAN_Viewer_JJ_R009_win.exe`
-   - Linux: `dist/PCAN_Viewer_JJ_R009_linux/PCAN_Viewer_JJ_R009_linux` (리눅스용 README 파일 포함)
+   - Windows: `dist/PCAN_Viewer_JJ_R012_1_win/PCAN_Viewer_JJ_R012_1_win.exe`
+   - Linux: `dist/PCAN_Viewer_JJ_R012_1_linux/PCAN_Viewer_JJ_R012_1_linux` (리눅스용 README 파일 포함)
 
-3. 새로 생성된 R009 배포 폴더의 실행 파일을 실행합니다. 이전 실행 파일은 소스 수정만으로 갱신되지 않습니다.
+3. 새로 생성된 R012_1 배포 폴더의 실행 파일을 실행합니다. 이전 실행 파일은 소스 수정만으로 갱신되지 않습니다.
 4. 배포 폴더에는 `MANUAL.md`, `USER_PANEL_SEQUENCE.md`, `USER_PANEL_RELEASE_NOTES.md`와 OS별 실행 안내가 포함됩니다.
 5. 패널의 **Save**로 시퀀스·도구 설정을 별도로 저장하세요. 실행 로그와 실행 중 상태는 패널 파일에 저장되지 않습니다.
 
-검증 명령: `python -B -m unittest discover -s tests`. 실제 CAN 장비 검증과 OS별 R009 배포 바이너리 검증은 별도로 수행해야 합니다.
+검증 명령: `python -B -m unittest discover -s tests`. 실제 CAN 장비 검증과 OS별 R012_1 배포 바이너리 검증은 별도로 수행해야 합니다.
 
 *(빌드 스크립트는 PCANBasic.dll 및 아이콘 파일 등 필요 리소스들을 실행 파일 내부에 자동으로 함께 패키징하도록 설계되어 있습니다.)*

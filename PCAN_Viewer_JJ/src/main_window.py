@@ -7,7 +7,7 @@ import time
 from collections import deque
 from datetime import datetime
 import can, cantools
-from src.db_frame_format import load_sym_with_fd
+from src.db_frame_format import load_sym_with_fd, frame_is_extended
 from src.PCANBasic import *
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QLabel, 
                              QComboBox, QPushButton, QListWidget, QListWidgetItem, QShortcut, QLineEdit,
@@ -702,7 +702,13 @@ class UniversalCANMonitor(QMainWindow):
 
         # 메인 창과 별개의 독립된 창으로 띄우기 위해 parent를 None으로 설정 (closeEvent에서 자동 종료 처리됨)
         bitrates = {b: self.combo_bitrate[b].currentText() for b in BUS_IDS if self.buses[b]}
-        self.record_window = RecordWindow(None, bitrates=bitrates)
+        try:
+            self.record_window = RecordWindow(None, bitrates=bitrates)
+        except OSError as exc:
+            # 임시 기록 파일을 만들 수 없으면(디스크/권한) 기록을 시작하지 않습니다.
+            self.record_window = None
+            show_error(self, "Record 시작 실패", f"임시 기록 파일을 만들 수 없습니다:\n{exc}")
+            return
         self.record_window.show()
             
     def route_raw_msg_to_record(self, ts, can_id, data, is_ext, is_err, is_fd, is_rx, bus_num, is_brs=False):
@@ -746,13 +752,15 @@ class UniversalCANMonitor(QMainWindow):
         except RuntimeError:
             self.user_panel_window = None
 
-    def record_tx_activity(self, bus_num, can_id, data, is_fd, timestamp=None):
+    def record_tx_activity(self, bus_num, can_id, data, is_fd, timestamp=None, is_ext=None):
         """Rx 스레드를 거치지 않는 수동 Tx(로그 재생/Tx 패널)도 메인 트리에 즉시 반영합니다."""
         now = time.time() if timestamp is None else timestamp
         payload = bytes(data)
+        is_ext = frame_is_extended(can_id, is_ext,
+                                   getattr(self, 'db_messages', {}).get(bus_num, {}).get(can_id))
         rx_thread = self.rx_threads.get(bus_num)
         if not rx_thread:
-            self.route_raw_msg_to_record(now, can_id, payload, can_id > 0x7FF,
+            self.route_raw_msg_to_record(now, can_id, payload, is_ext,
                                          False, bool(is_fd), False, bus_num)
             return
 
@@ -767,7 +775,7 @@ class UniversalCANMonitor(QMainWindow):
             rx_thread.latest_msg_stats[can_id] = stats
             recorder = getattr(self, 'record_window', None)
             if recorder is not None and recorder.isVisible():
-                recorder.add_log_entry(now, can_id, payload, can_id > 0x7FF, False,
+                recorder.add_log_entry(now, can_id, payload, is_ext, False,
                                        bool(is_fd), False, bus_num, preserve_timestamp=True)
             return
         if stats["last_time"] is not None:
@@ -794,7 +802,7 @@ class UniversalCANMonitor(QMainWindow):
             now,
             can_id,
             payload,
-            can_id > 0x7FF,
+            is_ext,
             False,
             bool(is_fd),
             False,
@@ -859,12 +867,14 @@ class UniversalCANMonitor(QMainWindow):
         msg = can.Message(
             arbitration_id=int(can_id),
             data=payload,
-            is_extended_id=(int(can_id) > 0x7FF),
+            is_extended_id=frame_is_extended(
+                int(can_id), frame_props.get('is_extended_id'),
+                getattr(self, 'db_messages', {}).get(int(bus_num), {}).get(int(can_id))),
             is_fd=is_fd,
             bitrate_switch=is_brs
         )
         bus_obj.send(msg)
-        self.record_tx_activity(int(bus_num), int(can_id), payload, is_fd)
+        self.record_tx_activity(int(bus_num), int(can_id), payload, is_fd, is_ext=msg.is_extended_id)
 
     def choose_panel_history(self):
         box = QMessageBox(self.user_panel_window if self.user_panel_window.isVisible() else self)
@@ -1327,8 +1337,29 @@ class UniversalCANMonitor(QMainWindow):
             self.log_bus_event(bus_num, f"연결 실패: {e}", "ERROR", diagnostic_details("SocketCAN 연결"))
             self.notify_connection_error("Error", f"Failed to open Linux CAN channel for Bus {bus_num}:\n{str(e)}")
 
+    _LINUX_CMD_TIMEOUT_S = 10
+    _SUDO_PASSWORD_TTL_S = 60
+
+    @staticmethod
+    def _linux_ip_binary():
+        """PATH 변조 영향을 받지 않도록 시스템 ip 경로를 우선 사용합니다."""
+        for candidate in ('/usr/sbin/ip', '/sbin/ip', '/usr/bin/ip', '/bin/ip'):
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+        return 'ip'
+
+    def _run_linux_subprocess(self, command, **kwargs):
+        try:
+            return subprocess.run(command, capture_output=True, text=True,
+                                  timeout=self._LINUX_CMD_TIMEOUT_S, **kwargs)
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(
+                command, 1, '', f'명령이 {self._LINUX_CMD_TIMEOUT_S}초 안에 끝나지 않았습니다.')
+
     def _run_linux_ip_command(self, command):
-        result = subprocess.run(command, capture_output=True, text=True)
+        if command and command[0] == 'ip':
+            command = [self._linux_ip_binary(), *command[1:]]
+        result = self._run_linux_subprocess(command)
         if result.returncode == 0:
             return result
         try:
@@ -1341,16 +1372,29 @@ class UniversalCANMonitor(QMainWindow):
         if 'operation not permitted' not in error_text and 'permission denied' not in error_text:
             return result
 
-        password = self._linux_sudo_password
+        # 1) sudo 자체 인증 캐시(timestamp)가 살아 있으면 비밀번호 없이 실행합니다.
+        elevated = self._run_linux_subprocess(['sudo', '-n', '--', *command])
+        sudo_error = f'{elevated.stderr}\n{elevated.stdout}'.lower()
+        if elevated.returncode == 0 or ('password' not in sudo_error and 'terminal' not in sudo_error):
+            # 성공했거나, sudo 인증은 통과했지만 ip 명령 자체가 실패한 경우: 다시 묻지 않습니다.
+            return elevated
+
+        # 2) 비밀번호는 한 번의 연결 작업(down/up 등 연속 명령)에만 짧게 재사용하고 버립니다.
+        password = ''
+        cached = getattr(self, '_linux_sudo_password', '')
+        if isinstance(cached, tuple) and time.monotonic() - cached[1] < self._SUDO_PASSWORD_TTL_S:
+            password = cached[0]
+        self._linux_sudo_password = ''
         if not password:
             password, accepted = QInputDialog.getText(
                 self, 'sudo 인증', 'CAN 인터페이스 설정을 위한 sudo 비밀번호:', QLineEdit.Password)
             if not accepted or not password:
                 return None
 
-        elevated = subprocess.run(['sudo', '-S', '-p', '', '--', *command],
-                                  input=password + '\n', capture_output=True, text=True)
-        self._linux_sudo_password = password if elevated.returncode == 0 else ''
+        elevated = self._run_linux_subprocess(['sudo', '-S', '-p', '', '--', *command],
+                                              input=password + '\n')
+        if elevated.returncode == 0:
+            self._linux_sudo_password = (password, time.monotonic())
         return elevated
 
     def close_can(self, bus_num=None):
@@ -1948,6 +1992,14 @@ class UniversalCANMonitor(QMainWindow):
 
     def closeEvent(self, event):
         """프로그램 종료 시 포트 안전 종료"""
+        # 기록 저장에 실패하면 재저장할 수 있도록 종료 작업을 취소합니다.
+        try:
+            if getattr(self, 'record_window', None) and self.record_window.isVisible():
+                if not self.record_window.close():
+                    event.ignore()
+                    return
+        except RuntimeError:
+            self.record_window = None
         self.session.autosave()
         self.session.timer.stop()
         self.bus_status_timer.stop()
@@ -1962,13 +2014,6 @@ class UniversalCANMonitor(QMainWindow):
         # 메인 윈도우가 닫힐 때 실시간 그래프 창 모두 닫기
         for graph in list(getattr(self, 'active_graphs', [])):
             graph.close()
-            
-        # 메인 윈도우가 닫힐 때 Record 창이 켜져있다면 강제로 닫기
-        try:
-            if getattr(self, 'record_window', None) and self.record_window.isVisible():
-                self.record_window.close()
-        except RuntimeError:
-            pass
             
         # 메인 윈도우가 닫힐 때 모든 로그 뷰어 창도 닫기
         for viewer in list(getattr(self, 'log_viewers', [])):

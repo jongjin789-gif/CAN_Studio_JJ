@@ -135,7 +135,7 @@ class SequenceTest(unittest.TestCase):
     def setUp(self):
         self.sent = []
         self.main = SimpleNamespace(buses={1: SimpleNamespace(send=self.sent.append)},
-                                    bus_capabilities={1: {'is_fd': True}}, record_tx_activity=lambda *a: None)
+                                    bus_capabilities={1: {'is_fd': True}}, record_tx_activity=lambda *a, **kwargs: None)
         self.panel = UserPanelWindow(self.main, {})
         self.panel.show()
         self.panel.set_mode('run')

@@ -28,6 +28,12 @@ class LogPanelDisplayTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        # Earlier modules in the same process can leave deferred deletes and dead Python
+        # wrappers; flush them before this class pumps the event loop with QTest.qWait.
+        import gc
+        gc.collect()
+        cls.app.sendPostedEvents(None, QEvent.DeferredDelete)
+        cls.app.processEvents()
 
     def setUp(self):
         self.addCleanup(lambda: self.app.sendPostedEvents(None, QEvent.DeferredDelete))

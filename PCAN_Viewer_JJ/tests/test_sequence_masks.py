@@ -120,7 +120,7 @@ class MaskedSequenceTest(unittest.TestCase):
         cmd = dict(kind='CMD', packet=p, data_override=data, data_mask=mask)
         sent = []
         main = SimpleNamespace(buses={1: SimpleNamespace(send=sent.append)},
-                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *a: None)
+                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *a, **kwargs: None)
         panel = UserPanelWindow(main, {})
         self.addCleanup(panel.close)
         panel._load_panel_data(json.loads(json.dumps(dict(tx_packets=[p], widgets=[], init_steps=[cmd]))))

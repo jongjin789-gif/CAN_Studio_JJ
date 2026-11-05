@@ -35,7 +35,7 @@ class MultiCommandTest(unittest.TestCase):
         self.sent = []
         main = SimpleNamespace(buses={i: SimpleNamespace(send=self.sent.append) for i in (1, 2)},
                                bus_capabilities={i: {'is_fd': False} for i in (1, 2)},
-                               record_tx_activity=lambda *args: None)
+                               record_tx_activity=lambda *args, **kwargs: None)
         panel = UserPanelWindow(main, {})
         self.addCleanup(panel.close)
         panel._load_panel_data(dict(tx_packets=packets, widgets=[cfg]))

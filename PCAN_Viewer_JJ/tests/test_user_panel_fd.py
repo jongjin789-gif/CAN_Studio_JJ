@@ -33,7 +33,7 @@ class PanelFDTest(unittest.TestCase):
             user_tx_cache={}, user_frame_properties={},
             buses={1: SimpleNamespace(send=sent.append)},
             bus_capabilities={1: {"is_fd": True}},
-            record_tx_activity=lambda *args: None,
+            record_tx_activity=lambda *args, **kwargs: None,
         )
         owner._pack_signal_to_payload = lambda *args: UniversalCANMonitor._pack_signal_to_payload(owner, *args)
         for is_fd, brs in ((False, False), (True, False), (True, True)):

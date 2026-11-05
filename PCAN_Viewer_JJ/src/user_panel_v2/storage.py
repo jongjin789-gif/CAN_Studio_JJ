@@ -6,6 +6,7 @@ import zipfile
 
 
 PACKAGE_EXT = ".pjjupkg"
+PACKAGE_FORMAT = "PJJ_USER_PANEL_PACKAGE"
 
 
 def save_panel_json(path, panel_data):
@@ -23,7 +24,7 @@ def save_bundle(path, panel_data, db_paths_by_bus):
         path += PACKAGE_EXT
 
     manifest = {
-        "format": "PJJ_USER_PANEL_PACKAGE",
+        "format": PACKAGE_FORMAT,
         "version": 2,
         "db_files": {str(b): [] for b in BUS_IDS},
     }
@@ -61,6 +62,8 @@ def load_bundle(path):
     with zipfile.ZipFile(path, "r") as zf:
         with zf.open("manifest.json") as f:
             manifest = json.loads(f.read().decode("utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("format", PACKAGE_FORMAT) != PACKAGE_FORMAT:
+            raise ValueError("Not a PJJ user panel package")
 
         with zf.open("panel/panel.json") as f:
             panel_data = json.loads(f.read().decode("utf-8"))
@@ -70,7 +73,11 @@ def load_bundle(path):
                 arc_name = item.get("arc_name")
                 if not arc_name:
                     continue
-                out_path = os.path.join(temp_dir, os.path.basename(arc_name))
+                # BUS별 하위 폴더에 풀어 BUS1/BUS2가 같은 파일명을 써도 서로 덮어쓰지 않게 합니다.
+                # basename만 사용하므로 zip 내부 경로로 temp 밖에 쓰는 것(zip-slip)은 막힙니다.
+                bus_dir = os.path.join(temp_dir, f"bus{bus}")
+                os.makedirs(bus_dir, exist_ok=True)
+                out_path = os.path.join(bus_dir, os.path.basename(arc_name))
                 with zf.open(arc_name) as src, open(out_path, "wb") as dst:
                     dst.write(src.read())
                 db_paths_by_bus[bus].append(out_path)

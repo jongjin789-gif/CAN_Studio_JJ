@@ -1,0 +1,2 @@
+# Linux shell scripts must keep LF endings even when checked out on Windows (core.autocrlf=true).
+*.sh text eol=lf

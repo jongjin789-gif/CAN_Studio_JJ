@@ -345,10 +345,6 @@ class ToolProperties(QWidget):
                 if not self.panel._authorize_communication():
                     return
                 self.panel.set_mode('standby')
-            if plans:
-                if not self.panel._authorize_communication():
-                    return
-                self.panel.set_mode('standby')
             for combo, index in plans:
                 combo.setCurrentIndex(index)
             if plans:

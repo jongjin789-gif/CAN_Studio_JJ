@@ -73,7 +73,7 @@ class CommandValuesTest(unittest.TestCase):
         p = packet()
         sent = []
         main = SimpleNamespace(buses={1: SimpleNamespace(send=sent.append)},
-                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *args: None)
+                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *args, **kwargs: None)
         cmd = dict(kind='CMD', packet=p, data_override=[11]*8)
         panel = UserPanelWindow(main, {})
         panel._load_panel_data(dict(tx_packets=[p], widgets=[], init_steps=[cmd]))
@@ -126,7 +126,7 @@ class CommandValuesTest(unittest.TestCase):
         p['cycle'] = 10
         sent = []
         main = SimpleNamespace(buses={1: SimpleNamespace(send=sent.append)},
-                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *args: None)
+                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *args, **kwargs: None)
         panel = UserPanelWindow(main, {})
         panel._load_panel_data(dict(tx_packets=[p], widgets=[]))
         panel.show()

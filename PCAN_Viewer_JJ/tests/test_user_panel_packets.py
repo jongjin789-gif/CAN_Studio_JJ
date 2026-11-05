@@ -233,7 +233,7 @@ class PanelPacketTest(unittest.TestCase):
     def panel(self, packets, configs=(), db=None):
         self.sent = []
         main = SimpleNamespace(buses={1: SimpleNamespace(send=self.sent.append)},
-                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *args: None)
+                               bus_capabilities={1: {'is_fd': False}}, record_tx_activity=lambda *args, **kwargs: None)
         panel = UserPanelWindow(main, db or {})
         panel._load_panel_data(dict(tx_packets=copy.deepcopy(packets), widgets=copy.deepcopy(list(configs))))
         panel.show()

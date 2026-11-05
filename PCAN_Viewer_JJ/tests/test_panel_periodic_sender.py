@@ -56,7 +56,7 @@ class PeriodicSenderTest(unittest.TestCase):
         main = SimpleNamespace(
             buses={b: SimpleNamespace(send=lambda msg, b=b: send(b, msg)) for b in (1, 2)},
             bus_capabilities={b: {'is_fd': True} for b in (1, 2)},
-            record_tx_activity=lambda *args: self.records.append((threading.get_ident(), args)))
+            record_tx_activity=lambda *args, **kwargs: self.records.append((threading.get_ident(), args)))
         panel = UserPanelWindow(main, {b: {0x163: message} for b in (1, 2)})
         panel._load_panel_data(dict(tx_packets=[packet(), packet('q', 2)], widgets=[]))
         panel.show()
@@ -114,9 +114,10 @@ class PeriodicSenderTest(unittest.TestCase):
     def test_tx_record_keeps_send_timestamp_when_gui_delivery_is_late(self):
         recorder = RecordWindow()
         self.addCleanup(recorder.deleteLater)
+        self.addCleanup(recorder._discard_temp)
         recorder.add_log_entry(100, 1, b'\0', False, False, False, True)
         recorder.add_log_entry(101, 1, b'\0', False, False, False, True)
         recorder.add_log_entry(100.25, 0x163, bytes(32), False, False, True, False,
                                preserve_timestamp=True)
-        self.assertEqual(float(recorder.log_lines[-1].split()[1]), 250.0)
+        self.assertEqual(float(recorder.last_line.split()[1]), 250.0)
         recorder.timer.stop()

@@ -507,6 +507,14 @@ class LogViewerWindow(QMainWindow):
         self.statusBar().showMessage(message)
         self.update_control_states()
 
+    def get_visible_log_rows(self):
+        """필터를 존중하여 현재 표시되는 로그의 원본 행 번호 목록을 반환합니다."""
+        if self._filtering or self._populating:
+            return []
+        if self._visible_log_rows is None:
+            return list(range(min(self.log_table.rowCount(), len(self.raw_log_data))))
+        return list(self._visible_log_rows)
+
     def get_visible_log_data(self):
         """필터를 존중하여 현재 표시되는 로그 데이터 목록을 반환합니다."""
         if self._filtering or self._populating:
@@ -626,7 +634,9 @@ class LogViewerWindow(QMainWindow):
             self.clear_row_highlight(self.highlighted_row)
         self._single_send_timer.stop()
         self._pending_single = None
-        self._send_logs = self.get_visible_log_data()
+        # 원본 행 번호를 함께 보관해 송신 중 list.index() 탐색(O(n²))을 피합니다.
+        self._send_rows = self.get_visible_log_rows()
+        self._send_logs = [self.raw_log_data[row] for row in self._send_rows]
         if not self._send_logs:
             self.btn_send.setChecked(False)
             return
@@ -641,11 +651,9 @@ class LogViewerWindow(QMainWindow):
         # 전송 시작 위치 결정 (선택된 행 또는 처음부터)
         selected_row = self.log_table.currentRow()
         if selected_row >= 0:
-            visible_logs = self.get_visible_log_data()
             try:
-                # raw_log_data의 인덱스를 visible_logs에서의 인덱스로 변환
-                selected_log_entry = self.raw_log_data[selected_row]
-                self.current_send_index = visible_logs.index(selected_log_entry)
+                # 원본 행 번호를 송신 목록에서의 위치로 변환
+                self.current_send_index = self._send_rows.index(selected_row)
             except ValueError:
                 # Selected row is not visible due to filter, start from beginning of visible logs
                 self.current_send_index = 0
@@ -653,7 +661,7 @@ class LogViewerWindow(QMainWindow):
             self.current_send_index = 0
         
         # 드리프트 보정을 위한 타이밍 기준 초기화/리셋
-        visible_logs = self.get_visible_log_data()
+        visible_logs = self._send_logs
         if self.current_send_index < len(visible_logs):
             self.send_start_time = time.monotonic()
             self.log_start_offset_ms = visible_logs[self.current_send_index]['offset_ms']
@@ -727,7 +735,8 @@ class LogViewerWindow(QMainWindow):
 
     def _record_single_send(self, row, bus, msg):
         if hasattr(self.main_window, 'record_tx_activity'):
-            self.main_window.record_tx_activity(bus, msg.arbitration_id, bytes(msg.data), msg.is_fd)
+            self.main_window.record_tx_activity(bus, msg.arbitration_id, bytes(msg.data), msg.is_fd,
+                                                is_ext=msg.is_extended_id)
         QTimer.singleShot(200, lambda: self.clear_row_highlight(row))
 
     def _retry_single_send(self):
@@ -770,14 +779,15 @@ class LogViewerWindow(QMainWindow):
             return
 
         log_data = self._send_logs
+        send_rows = getattr(self, '_send_rows', None)
+        if send_rows is None or len(send_rows) != len(log_data):
+            send_rows = self._send_rows = [self.raw_log_data.index(entry) for entry in log_data]
 
         if self.current_send_index > 0:
             prev_log_index = self.current_send_index - 1
             if prev_log_index < len(log_data):
                 try:
-                    prev_log = log_data[prev_log_index]
-                    prev_original_index = self.raw_log_data.index(prev_log)
-                    self.clear_row_highlight(prev_original_index)
+                    self.clear_row_highlight(send_rows[prev_log_index])
                 except (ValueError, IndexError):
                     pass
         
@@ -795,7 +805,7 @@ class LogViewerWindow(QMainWindow):
 
         current_log = log_data[self.current_send_index]
         try:
-            original_index = self.raw_log_data.index(current_log)
+            original_index = send_rows[self.current_send_index]
             self.log_table.selectRow(original_index)
             for j in range(self.log_table.columnCount()):
                 item = self.log_table.item(original_index, j)
@@ -829,7 +839,8 @@ class LogViewerWindow(QMainWindow):
                     self.send_timer.start(1)
                     return  # Keep this row pending while periodic TX owns the bus.
                 if hasattr(self.main_window, 'record_tx_activity'):
-                    self.main_window.record_tx_activity(target_bus_num, current_log['can_id'], current_log['data'], is_fd)
+                    self.main_window.record_tx_activity(target_bus_num, current_log['can_id'], current_log['data'], is_fd,
+                                                        is_ext=msg.is_extended_id)
             except Exception as e:
                 if self.main_window:
                     self.main_window.statusBar().showMessage(f"Tx Error: {e}", 3000)

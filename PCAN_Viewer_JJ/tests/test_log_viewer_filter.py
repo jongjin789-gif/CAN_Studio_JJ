@@ -248,7 +248,7 @@ class LogFilterTest(unittest.TestCase):
             main = SimpleNamespace(buses={1: SimpleNamespace(send=sent.append),
                                           2: SimpleNamespace(send=sent.append)},
                                    bus_capabilities={1: {'is_fd': True}, 2: {'is_fd': True}},
-                                   record_tx_activity=lambda *a: None,
+                                   record_tx_activity=lambda *a, **kwargs: None,
                                    statusBar=lambda: SimpleNamespace(showMessage=lambda *a: None))
             with patch.object(LogViewerWindow, 'start_parsing'):
                 view = LogViewerWindow(str(source), {}, main)
