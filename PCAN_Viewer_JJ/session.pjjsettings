@@ -48,22 +48,30 @@
   },
   "can": {
     "1": {
+      "backend": "pcan",
       "device": {
         "bustype": "pcan",
         "handle": 81,
-        "device_id": 255,
+        "device_id": 429330452,
         "device_type": 5,
         "controller_number": 0
       },
-      "channel": "PCAN-USB (0x51) ",
+      "channel": "PCAN-USB FD (0x51) [FD]",
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
-      "data_bitrate": "N/A",
+      "data_bitrate": "Off",
       "is_open": false
     },
     "2": {
-      "device": null,
-      "channel": "",
+      "backend": "pcan",
+      "device": {
+        "bustype": "pcan",
+        "handle": 82,
+        "device_id": 204,
+        "device_type": 5,
+        "controller_number": 0
+      },
+      "channel": "PCAN-USB (0x52) ",
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
       "data_bitrate": "N/A",
@@ -98,7 +106,25 @@
       "is_open": false
     }
   },
-  "tx_packets": [],
+  "tx_packets": [
+    {
+      "bus": 1,
+      "id": 0,
+      "is_fd": false,
+      "is_brs": false,
+      "length": 2,
+      "data": [
+        170,
+        85
+      ],
+      "cycle": 15,
+      "signal_counters": {},
+      "note": "",
+      "symbol": "N/A",
+      "count": 0,
+      "crc_type": "N/A"
+    }
+  ],
   "graphs": [],
   "panel": {
     "data": {

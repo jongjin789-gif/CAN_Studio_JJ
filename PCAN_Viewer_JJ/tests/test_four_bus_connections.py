@@ -16,7 +16,7 @@ from src.session_storage import read_session, write_session, validate_structure
 from src.tx_panel import TxPacketDialog
 from src.user_panel_v2.connection_dialog import ConnectionDialog
 from src.bus_config import normalized_signature
-from src.connection_controls import ConnectionGrid
+from src.connection_controls import ConnectionGrid, STATE_COLUMN
 from src.user_panel_v2.packets import PacketRuntime, validate_packet
 from src.user_panel_v2.storage import save_bundle, load_bundle
 from src.PCANBasic import PCAN_ERROR_BUSHEAVY, PCAN_ERROR_BUSOFF
@@ -81,7 +81,7 @@ class FourBusConnectionsTest(unittest.TestCase):
         self.addCleanup(dialog.close)
         self.assertLess(grid.font().pointSizeF(), dialog.font().pointSizeF())
         self.assertEqual(self.main.combo_bitrate[4].currentText(), '500 kBit/s')
-        self.assertGreaterEqual(grid.columnWidth(6), 200)
+        self.assertGreaterEqual(grid.columnWidth(STATE_COLUMN), 200)
         self.assertEqual(set(self.main.list_db_files), {1, 2, 3, 4})
 
     def test_toggle_connection_and_panel_share_live_state(self):
@@ -294,7 +294,7 @@ class FourBusConnectionsTest(unittest.TestCase):
         grid.resize(1600, grid.height())
         self.app.processEvents()
         self.assertFalse(field.compact)
-        self.assertGreaterEqual(grid.columnWidth(6), 200)
+        self.assertGreaterEqual(grid.columnWidth(STATE_COLUMN), 200)
 
     def test_pcan_warning_recovery_and_bus_off_are_reported_per_bus(self):
         other, _ = self.connect(1)

@@ -76,9 +76,26 @@ class SessionManager(QObject):
             box.setDetailedText('\n'.join(issues))
         box.exec_()
 
+    def _backend_key(self, bus):
+        """CAN 방식(장치 모듈) 키. 이전 버전 파일에는 없으며 device.bustype으로 대신 판단합니다."""
+        selected = getattr(self.main, 'selected_backend', None)
+        return selected(bus).key if callable(selected) else None
+
+    def _select_backend(self, bus, cfg):
+        """저장된 CAN 방식이 이 OS에서 선택 가능하면 콤보를 맞추고 해당 방식으로 채널을 다시 찾습니다."""
+        m = self.main
+        devices, combo = getattr(m, 'devices', None), getattr(m, 'combo_backend', {}).get(bus)
+        if devices is None or combo is None:
+            return
+        key = cfg.get('backend') or devices.key_for_device(cfg.get('device'))
+        index = combo.findData(key) if key else -1
+        if index >= 0 and index != combo.currentIndex():
+            combo.setCurrentIndex(index)  # on_backend_changed -> 채널 재검색
+
     def capture_can(self, bus):
         m = self.main
-        cfg = dict(device=device_identity(m.combo_channels[bus].currentData()),
+        cfg = dict(backend=self._backend_key(bus),
+                   device=device_identity(m.combo_channels[bus].currentData()),
                    channel=m.combo_channels[bus].currentText(),
                    bitrate=m.combo_bitrate[bus].currentText(),
                    fd_iso=m.combo_fd_iso[bus].currentText(),
@@ -387,6 +404,7 @@ class SessionManager(QObject):
 
     def apply_can(self, bus, cfg):
         m = self.main
+        self._select_backend(bus, cfg)
         combo = m.combo_channels[bus]
         desired = cfg['device']
         index = next((i for i in range(combo.count())
@@ -429,7 +447,8 @@ class SessionManager(QObject):
             m.close_can(bus)
             m.log_bus_event(bus, '설정 복원: ' + '; '.join(errors), 'ERROR')
             self.errors.append(f'BUS {bus}: Close — ' + '; '.join(errors))
-        actual = dict(device=device_identity(combo.currentData()), channel=combo.currentText(),
+        actual = dict(backend=self._backend_key(bus),
+                      device=device_identity(combo.currentData()), channel=combo.currentText(),
                       bitrate=m.combo_bitrate[bus].currentText(), fd_iso=m.combo_fd_iso[bus].currentText(),
                       data_bitrate=m.combo_data_bitrate[bus].currentText(), is_open=m.buses[bus] is not None)
         if errors:

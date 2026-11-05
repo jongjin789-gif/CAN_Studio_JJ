@@ -89,6 +89,9 @@ def validate_structure(data):
             raise ValueError(f'BUS {bus}: CAN 설정이 올바르지 않습니다.')
         if cfg.get('device') is not None and not isinstance(cfg['device'], dict):
             raise ValueError(f'BUS {bus}: 장치 정보가 올바르지 않습니다.')
+        # 'backend' (CAN 방식) is optional: older files infer it from device.bustype.
+        if cfg.get('backend') is not None and not isinstance(cfg['backend'], str):
+            raise ValueError(f'BUS {bus}: CAN 방식 설정이 올바르지 않습니다.')
         for key in ('bitrate', 'fd_iso', 'data_bitrate'):
             if not isinstance(cfg.get(key), str):
                 raise ValueError(f'BUS {bus}: {key} 설정이 없습니다.')

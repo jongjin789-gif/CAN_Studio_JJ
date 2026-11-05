@@ -232,77 +232,69 @@ class PackageLoadTest(unittest.TestCase):
 
 
 class LinuxCommandTest(unittest.TestCase):
+    """SocketCAN ip/sudo handling now lives in src/can_devices/device_socketcan.py."""
+    PROMPT = 'src.can_devices.device_socketcan.QInputDialog.getText'
+
+    def backend(self, responses=None, run=None):
+        from src.can_devices.device_socketcan import SocketCanBackend
+        backend = SocketCanBackend(None)
+        calls = []
+
+        def fake(command, **kwargs):
+            calls.append(command)
+            return run(command) if run else responses.pop(0)
+
+        backend.run_subprocess = fake
+        backend.ip_binary = lambda: '/usr/sbin/ip'
+        return backend, calls
+
     def test_timeout_returns_failed_result_instead_of_hanging(self):
-        from src.main_window import UniversalCANMonitor
-        owner = SimpleNamespace(_LINUX_CMD_TIMEOUT_S=1)
+        from src.can_devices.device_socketcan import SocketCanBackend
+        backend = SocketCanBackend(None)
+        backend.CMD_TIMEOUT_S = 1
         with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('ip', 1)):
-            result = UniversalCANMonitor._run_linux_subprocess(owner, ['ip', 'link'])
+            result = backend.run_subprocess(['ip', 'link'])
         self.assertEqual(result.returncode, 1)
 
     def test_sudo_ticket_is_tried_before_prompting(self):
-        from src.main_window import UniversalCANMonitor
-        calls = []
-
-        def run(command, **kwargs):
-            calls.append(command)
-            code = 1 if command[0] != 'sudo' else 0
-            return subprocess.CompletedProcess(command, code, '', 'Operation not permitted')
-
-        owner = SimpleNamespace(_linux_sudo_password='', _SUDO_PASSWORD_TTL_S=60,
-                                _linux_ip_binary=lambda: '/usr/sbin/ip')
-        owner._run_linux_subprocess = lambda command, **kw: run(command, **kw)
-        with patch('os.geteuid', create=True, return_value=1000), \
-                patch('src.main_window.QInputDialog.getText') as prompt:
-            result = UniversalCANMonitor._run_linux_ip_command(owner, ['ip', 'link', 'set', 'can0', 'down'])
+        backend, calls = self.backend(run=lambda command: subprocess.CompletedProcess(
+            command, 1 if command[0] != 'sudo' else 0, '', 'Operation not permitted'))
+        with patch('os.geteuid', create=True, return_value=1000), patch(self.PROMPT) as prompt:
+            result = backend.run_ip_command(['ip', 'link', 'set', 'can0', 'down'])
         prompt.assert_not_called()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(calls[0][0], '/usr/sbin/ip')
         self.assertEqual(calls[1][:3], ['sudo', '-n', '--'])
 
-    def _sudo_owner(self, responses):
-        calls = []
-
-        def run(command, **kwargs):
-            calls.append(command)
-            return responses.pop(0)
-
-        owner = SimpleNamespace(_linux_sudo_password='', _SUDO_PASSWORD_TTL_S=60,
-                                _linux_ip_binary=lambda: '/usr/sbin/ip')
-        owner._run_linux_subprocess = run
-        return owner, calls
-
     def test_command_error_after_sudo_ticket_does_not_prompt_again(self):
-        from src.main_window import UniversalCANMonitor
         denied = subprocess.CompletedProcess([], 2, '', 'RTNETLINK answers: Operation not permitted')
         bad_arg = subprocess.CompletedProcess([], 2, '', 'RTNETLINK answers: Invalid argument')
-        owner, calls = self._sudo_owner([denied, bad_arg])
-        with patch('os.geteuid', create=True, return_value=1000), \
-                patch('src.main_window.QInputDialog.getText') as prompt:
-            result = UniversalCANMonitor._run_linux_ip_command(owner, ['ip', 'link', 'set', 'can0', 'up'])
+        backend, calls = self.backend([denied, bad_arg])
+        with patch('os.geteuid', create=True, return_value=1000), patch(self.PROMPT) as prompt:
+            result = backend.run_ip_command(['ip', 'link', 'set', 'can0', 'up'])
         prompt.assert_not_called()
         self.assertIn('Invalid argument', result.stderr)
         self.assertEqual(len(calls), 2)
 
     def test_password_prompt_when_sudo_needs_it_and_cache_expires(self):
-        from src.main_window import UniversalCANMonitor
         denied = subprocess.CompletedProcess([], 2, '', 'Operation not permitted')
         need_pw = subprocess.CompletedProcess([], 1, '', 'sudo: a password is required')
         ok = subprocess.CompletedProcess([], 0, '', '')
-        owner, calls = self._sudo_owner([denied, need_pw, ok])
+        backend, calls = self.backend([denied, need_pw, ok])
         with patch('os.geteuid', create=True, return_value=1000), \
-                patch('src.main_window.QInputDialog.getText', return_value=('pw', True)) as prompt:
-            result = UniversalCANMonitor._run_linux_ip_command(owner, ['ip', 'link', 'set', 'can0', 'up'])
+                patch(self.PROMPT, return_value=('pw', True)) as prompt:
+            result = backend.run_ip_command(['ip', 'link', 'set', 'can0', 'up'])
         prompt.assert_called_once()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(calls[2][:4], ['sudo', '-S', '-p', ''])
-        self.assertEqual(owner._linux_sudo_password[0], 'pw')
+        self.assertEqual(backend._sudo_password[0], 'pw')
         # After the TTL the cached password is not reused.
-        owner._linux_sudo_password = ('pw', owner._linux_sudo_password[1] - 61)
-        responses = [denied, need_pw, ok]
-        owner._run_linux_subprocess = lambda command, **kw: responses.pop(0)
+        backend._sudo_password = ('pw', backend._sudo_password[1] - 61)
+        backend2, _ = self.backend([denied, need_pw, ok])
+        backend.run_subprocess = backend2.run_subprocess
         with patch('os.geteuid', create=True, return_value=1000), \
-                patch('src.main_window.QInputDialog.getText', return_value=('', False)) as prompt:
-            self.assertIsNone(UniversalCANMonitor._run_linux_ip_command(owner, ['ip', 'link']))
+                patch(self.PROMPT, return_value=('', False)) as prompt:
+            self.assertIsNone(backend.run_ip_command(['ip', 'link']))
         prompt.assert_called_once()
 
 

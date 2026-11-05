@@ -144,17 +144,22 @@ class BusLogDialog(QDialog):
                 self.main.log_bus_event(self.bus, f'로그 저장 실패: {exc}', 'ERROR', issue=False)
 
 
+# Per-BUS selectors in column order. 'backend' is the CAN communication method (PCAN, SocketCAN ...).
+FIELD_KEYS = ('backend', 'channels', 'bitrate', 'fd_iso', 'data_bitrate')
+REFRESH_COLUMN, CONNECT_COLUMN, STATE_COLUMN = 5, 6, 7
+
+
 class ConnectionGrid(QTableWidget):
     def __init__(self, main, parent=None, mirror=False, before_action=None):
-        super().__init__(len(BUS_IDS), 7, parent)
+        super().__init__(len(BUS_IDS), 8, parent)
         self.main, self.mirror, self.before_action = main, mirror, before_action
         font = main.tx_panel.tree.font() if hasattr(main, 'tx_panel') else main.font()
         font.setPointSizeF(max(8.0, min(9.0, font.pointSizeF() - 1.0)))
         self.setFont(font)
         self.fields, self.buttons, self.states = {}, {}, {}
         self._syncing = False
-        self.setMinimumWidth(860)
-        self.setHorizontalHeaderLabels(['Channel', 'Baudrate', 'FD ISO', 'Data Bitrate', 'Refresh', 'Open / Close', 'State'])
+        self.setMinimumWidth(960)
+        self.setHorizontalHeaderLabels(['CAN 방식', 'Channel', 'Baudrate', 'FD ISO', 'Data Bitrate', 'Refresh', 'Open / Close', 'State'])
         self.setVerticalHeaderLabels([str(b) for b in BUS_IDS])
         self.setSortingEnabled(False)
         self.setDragDropMode(QAbstractItemView.NoDragDrop)
@@ -165,11 +170,12 @@ class ConnectionGrid(QTableWidget):
         header.setSectionsMovable(False)
         self.verticalHeader().setSectionsMovable(False)
         header.setSectionResizeMode(QHeaderView.Fixed)
-        header.setSectionResizeMode(6, QHeaderView.Stretch)
+        header.setSectionResizeMode(STATE_COLUMN, QHeaderView.Stretch)
         metrics = self.fontMetrics()
         row_height = max(22, metrics.height() + 6)
         header.setFixedHeight(max(20, metrics.height() + 4))
         self._full_widths = (
+            max(95, metrics.horizontalAdvance('SocketCAN') + 32),
             250,
             max(120, metrics.horizontalAdvance('500 kBit/s') + 32),
             max(100, metrics.horizontalAdvance('Non-ISO') + 32),
@@ -179,9 +185,9 @@ class ConnectionGrid(QTableWidget):
         for column, width in enumerate(self._full_widths):
             self.setColumnWidth(column, width)
         for row, bus in enumerate(BUS_IDS):
-            for column, key in enumerate(('channels', 'bitrate', 'fd_iso', 'data_bitrate')):
+            for column, key in enumerate(FIELD_KEYS):
                 field = (RateComboBox() if key in ('bitrate', 'data_bitrate')
-                         else CenteredComboBox() if key == 'fd_iso' else QComboBox())
+                         else CenteredComboBox() if key in ('backend', 'fd_iso') else QComboBox())
                 field.setMinimumWidth(0)
                 field.setMinimumContentsLength(1)
                 field.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -200,8 +206,8 @@ class ConnectionGrid(QTableWidget):
             connect.setFixedHeight(row_height)
             connect.clicked.connect(lambda checked=False, b=bus: self.perform(lambda: main.toggle_can(b)))
             self.buttons[bus, 'refresh'], self.buttons[bus, 'connect'] = refresh, connect
-            self.setCellWidget(row, 4, refresh)
-            self.setCellWidget(row, 5, connect)
+            self.setCellWidget(row, REFRESH_COLUMN, refresh)
+            self.setCellWidget(row, CONNECT_COLUMN, connect)
             state = QWidget()
             layout = QHBoxLayout(state)
             layout.setContentsMargins(5, 0, 2, 0)
@@ -218,7 +224,7 @@ class ConnectionGrid(QTableWidget):
             details.clicked.connect(lambda checked=False, b=bus: self.main.show_bus_log(b, self.window()))
             layout.addWidget(details)
             self.states[bus] = label
-            self.setCellWidget(row, 6, state)
+            self.setCellWidget(row, STATE_COLUMN, state)
             self.setRowHeight(row, row_height)
         self.setFixedHeight(header.height() + sum(self.rowHeight(r) for r in range(self.rowCount())) + 4)
         self.horizontalScrollBar().rangeChanged.connect(self.fit_height)
@@ -250,7 +256,7 @@ class ConnectionGrid(QTableWidget):
             for bus in BUS_IDS:
                 connected = self.main.buses.get(bus) is not None
                 busy = bus in self.main._bus_busy
-                for key in ('channels', 'bitrate', 'fd_iso', 'data_bitrate'):
+                for key in FIELD_KEYS:
                     source = getattr(self.main, 'combo_' + key, {}).get(bus)
                     field = self.fields[bus, key]
                     if source is None:
@@ -287,7 +293,7 @@ class ConnectionGrid(QTableWidget):
         super().resizeEvent(event)
         if hasattr(self, '_full_widths'):
             compact = self.viewport().width() - sum(self._full_widths) < 220
-            for column in (1, 3):
+            for column in (2, 4):  # Baudrate, Data Bitrate
                 title = self.horizontalHeaderItem(column).text()
                 width = max(75, self.fontMetrics().horizontalAdvance(title) + 12) if compact else self._full_widths[column]
                 self.setColumnWidth(column, width)

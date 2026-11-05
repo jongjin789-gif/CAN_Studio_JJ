@@ -2,13 +2,13 @@ from src.bus_config import BUS_IDS
 from src.error_dialog import show_error, diagnostic_details
 import sys, os, re
 import platform
-import subprocess
 import time
 from collections import deque
 from datetime import datetime
 import can, cantools
 from src.db_frame_format import load_sym_with_fd, frame_is_extended
-from src.PCANBasic import *
+from src.can_devices import (DeviceRegistry, DeviceOpenCancelled, DeviceOpenError, OpenSettings,
+                             DEFAULT_NOMINAL_INDEX)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QLabel, 
                              QComboBox, QPushButton, QListWidget, QListWidgetItem, QShortcut, QLineEdit,
                              QTreeWidget, QSplitter, QMessageBox, QFileDialog, QTreeWidgetItemIterator, QInputDialog)
@@ -25,8 +25,8 @@ from src.tx_panel import TxPanel
 from src.user_panel import UserPanelWindow
 from src.session_manager import SessionManager
 from src.main_menu import install_main_menu
-from src.connection_controls import ConnectionGrid, CollapsibleGroup, BusLogDialog
-from src.bus_config import normalized_signature, bitrate_value
+from src.connection_controls import ConnectionGrid, CollapsibleGroup, BusLogDialog, FIELD_KEYS
+from src.bus_config import normalized_signature
 from src.session_manager import device_identity
 from src.button_icons import decorate_button, button_icon
 from src.main_theme import apply_main_theme, packet_section
@@ -52,7 +52,6 @@ class UniversalCANMonitor(QMainWindow):
         self.user_panel_only = bool(user_panel_only)
         self.viewer_only = bool(viewer_only and not user_panel_only)
         self.communication_password = communication_password
-        self._linux_sudo_password = ''
         self._pending_panel_events = []
         self.user_panel_security = user_panel_security or {"enabled": False, "password": ""}
         
@@ -66,6 +65,8 @@ class UniversalCANMonitor(QMainWindow):
         self.setWindowIcon(QIcon(get_resource_path(os.path.join("icon", "viewer.png"))))
         self.resize(600, 200) if self.viewer_only else self.resize(1280, 800)
         
+        # CAN 통신 방식별 장치 모듈(src/can_devices/device_*.py). 연결 그리드보다 먼저 만들어야 합니다.
+        self.devices = DeviceRegistry(self)
         self.buses = {b: None for b in BUS_IDS}
         self.bus_capabilities = {b: {'is_fd': False} for b in BUS_IDS}
         self._bus_busy = set()
@@ -129,27 +130,27 @@ class UniversalCANMonitor(QMainWindow):
         return ('미연결', 'INFO')
 
     def poll_bus_status(self):
-        """PCAN warnings may be logged by python-can without a receive exception."""
+        """Device warnings may be logged by python-can without a receive exception."""
         for bus in BUS_IDS:
             device = self.buses[bus]
             cfg = self.combo_channels[bus].currentData() or {}
-            if device is None or bus in self._bus_busy or cfg.get('bustype') != 'pcan':
+            if device is None or bus in self._bus_busy or not isinstance(cfg, dict):
                 continue
-            status_fn = getattr(device, 'status', None)
-            if not callable(status_fn):
-                continue
+            backend = self.devices.for_bustype(cfg.get('bustype'))
             try:
-                status = status_fn()
-                status = int(getattr(status, 'value', status))
+                result = backend.poll_status(device)
             except Exception as exc:
                 self.log_bus_event(bus, f'장치 상태 조회 오류: {exc}', 'ERROR')
                 continue
-            if status & PCAN_ERROR_BUSOFF:
-                self.log_bus_event(bus, 'Bus-Off · 오류로 연결 해제', 'ERROR', f'PCAN status: 0x{status:X}')
+            if result is None:
+                continue
+            state, detail = result
+            if state == 'busoff':
+                self.log_bus_event(bus, 'Bus-Off · 오류로 연결 해제', 'ERROR', detail)
                 self.close_can(bus)
-            elif status & (PCAN_ERROR_BUSLIGHT | PCAN_ERROR_BUSHEAVY | PCAN_ERROR_BUSPASSIVE):
-                self.log_bus_event(bus, '연결됨 · 경고: CAN 버스 오류', 'WARN', f'PCAN status: 0x{status:X}')
-            elif status == PCAN_ERROR_OK and self.bus_issues.get(bus, ('', ''))[0] == '연결됨 · 경고: CAN 버스 오류':
+            elif state == 'warn':
+                self.log_bus_event(bus, '연결됨 · 경고: CAN 버스 오류', 'WARN', detail)
+            elif state == 'ok' and self.bus_issues.get(bus, ('', ''))[0] == '연결됨 · 경고: CAN 버스 오류':
                 self.bus_issues.pop(bus, None)
                 self.log_bus_event(bus, 'CAN 버스 경고 해소')
 
@@ -314,14 +315,18 @@ class UniversalCANMonitor(QMainWindow):
         conn_layout.setContentsMargins(0, 0, 0, 0)
         conn_layout.setSpacing(0)
         self.connection_grid = ConnectionGrid(self, conn_group.content)
-        for key in ('channels', 'bitrate', 'fd_iso', 'data_bitrate'):
+        for key in FIELD_KEYS:
             setattr(self, 'combo_' + key, {b: self.connection_grid.fields[b, key] for b in BUS_IDS})
         self.btn_refresh = {b: self.connection_grid.buttons[b, 'refresh'] for b in BUS_IDS}
         self.btn_connect = {b: self.connection_grid.buttons[b, 'connect'] for b in BUS_IDS}
         for bus in BUS_IDS:
+            for backend in self.devices.selectable():
+                self.combo_backend[bus].addItem(backend.label, backend.key)
+            self.combo_backend[bus].setToolTip('CAN 통신 방식')
+            self.combo_backend[bus].currentIndexChanged.connect(lambda idx, b=bus: self.on_backend_changed(b))
             self.combo_fd_iso[bus].addItems(['ISO', 'Non-ISO'])
             self.combo_channels[bus].currentIndexChanged.connect(lambda idx, b=bus: self.on_channel_changed(b))
-            for key in ('channels', 'bitrate', 'fd_iso', 'data_bitrate'):
+            for key in FIELD_KEYS:
                 getattr(self, 'combo_' + key)[bus].currentIndexChanged.connect(lambda idx, b=bus: self.bus_state_changed.emit(b))
             self.on_channel_changed(bus)
         conn_layout.addWidget(self.connection_grid)
@@ -500,48 +505,42 @@ class UniversalCANMonitor(QMainWindow):
         finally:
             self.tree.blockSignals(False)
 
+    def selected_backend(self, bus_num):
+        """CAN 방식 콤보에서 고른 장치 모듈 (없으면 OS 기본값)."""
+        combo = getattr(self, 'combo_backend', {}).get(bus_num)
+        key = combo.currentData() if combo is not None else None
+        return self.devices.get(key) or self.devices.get(self.devices.default_key())
+
+    def channel_backend(self, bus_num):
+        """선택된 채널을 실제로 여는 장치 모듈 (채널 데이터의 bustype 기준)."""
+        data = self.combo_channels[bus_num].currentData()
+        if isinstance(data, dict) and data.get('bustype'):
+            return self.devices.for_bustype(data['bustype'])
+        return self.selected_backend(bus_num)
+
+    def on_backend_changed(self, bus_num):
+        if self.buses[bus_num] is not None or bus_num in self._bus_busy:
+            return
+        if not getattr(self, 'viewer_only', False):
+            self.search_can_channels(bus_num)
+
     def on_channel_changed(self, bus_num):
-        """선택된 PCAN 채널의 FD 지원 여부에 따라 통신 속도(Bitrate) 목록을 동적으로 업데이트합니다."""
+        """선택된 채널(장치 모듈)에 맞게 통신 속도(Bitrate) 목록을 갱신합니다."""
         self.combo_bitrate[bus_num].clear()
         self.combo_data_bitrate[bus_num].clear()
         channel_data = self.combo_channels[bus_num].currentData()
-        
-        is_fd = False
-        if isinstance(channel_data, dict):
-            is_fd = channel_data.get('is_fd', False)
-            
-        nom_baudrates = [
-            # Classic CAN (Nominal Bitrate)
-            ("1 MBit/s", {'bitrate': 1000000, 'nom_brp': 2, 'nom_tseg1': 31, 'nom_tseg2': 8, 'nom_sjw': 8}), 
-            ("800 kBit/s", {'bitrate': 800000, 'nom_brp': 2, 'nom_tseg1': 39, 'nom_tseg2': 10, 'nom_sjw': 10}), 
-            ("500 kBit/s", {'bitrate': 500000, 'nom_brp': 2, 'nom_tseg1': 63, 'nom_tseg2': 16, 'nom_sjw': 16}),
-            ("250 kBit/s", {'bitrate': 250000, 'nom_brp': 4, 'nom_tseg1': 63, 'nom_tseg2': 16, 'nom_sjw': 16}), 
-            ("125 kBit/s", {'bitrate': 125000, 'nom_brp': 8, 'nom_tseg1': 63, 'nom_tseg2': 16, 'nom_sjw': 16}), 
-            ("100 kBit/s", {'bitrate': 100000, 'nom_brp': 10, 'nom_tseg1': 63, 'nom_tseg2': 16, 'nom_sjw': 16}),
-            ("50 kBit/s", {'bitrate': 50000, 'nom_brp': 20, 'nom_tseg1': 63, 'nom_tseg2': 16, 'nom_sjw': 16}), 
-            ("20 kBit/s", {'bitrate': 20000, 'nom_brp': 50, 'nom_tseg1': 63, 'nom_tseg2': 16, 'nom_sjw': 16}), 
-            ("10 kBit/s", {'bitrate': 10000, 'nom_brp': 100, 'nom_tseg1': 63, 'nom_tseg2': 16, 'nom_sjw': 16})
-        ]
-            
-        for text, rate in nom_baudrates:
+        backend = self.channel_backend(bus_num)
+
+        for text, rate in backend.nominal_bitrates(channel_data):
             self.combo_bitrate[bus_num].addItem(text, rate)
-            
-        self.combo_bitrate[bus_num].setCurrentIndex(2) # Default 500 kBit/s
-        
-        if is_fd:
+        self.combo_bitrate[bus_num].setCurrentIndex(DEFAULT_NOMINAL_INDEX) # Default 500 kBit/s
+
+        data_rates = backend.data_bitrates(channel_data)
+        if data_rates:
             self.combo_fd_iso[bus_num].setEnabled(True)
             self.combo_data_bitrate[bus_num].setEnabled(True)
-            
-            data_baudrates = [
-                ("Off", None),
-                ("1 MBit/s", {'data_brp': 2, 'data_tseg1': 31, 'data_tseg2': 8, 'data_sjw': 8}),
-                ("2 MBit/s", {'data_brp': 2, 'data_tseg1': 15, 'data_tseg2': 4, 'data_sjw': 4}),
-                ("4 MBit/s", {'data_brp': 2, 'data_tseg1': 7, 'data_tseg2': 2, 'data_sjw': 2}),
-                ("8 MBit/s", {'data_brp': 2, 'data_tseg1': 3, 'data_tseg2': 1, 'data_sjw': 1})
-            ]
-            for text, data_rate in data_baudrates:
+            for text, data_rate in data_rates:
                 self.combo_data_bitrate[bus_num].addItem(text, data_rate)
-                
             self.combo_data_bitrate[bus_num].setCurrentIndex(0) # Default Off (N/A)
         else:
             self.combo_fd_iso[bus_num].setEnabled(False)
@@ -1032,116 +1031,35 @@ class UniversalCANMonitor(QMainWindow):
             self.log_bus_event(bus, '장치 검색 완료')
 
     def search_windows_can_channels(self, bus_num=None):
-        """PCAN 및 기타 CAN 하드웨어 채널 탐색 및 ComboBox 업데이트 (Windows 전용)"""
-        buses_to_update = [b for b in ([bus_num] if bus_num else BUS_IDS) if self.buses[b] is None and b not in self._bus_busy]
-        for b in buses_to_update:
-            self.combo_channels[b].clear()
-            self.combo_channels[b].setEnabled(True)
-            self.combo_bitrate[b].setEnabled(True)
-            self.btn_refresh[b].setEnabled(True)
-            
-        # 1. PCAN 장치 탐색 (우선순위 높음, 상세 정보 표시)
-        try:
-            pcan = PCANBasic()
-            result, data = pcan.GetValue(PCAN_NONEBUS, PCAN_ATTACHED_CHANNELS)
-            
-            if result == PCAN_ERROR_OK:
-                for ch in data:
-                    if ch.channel_handle != 0 and ch.channel_condition == PCAN_CHANNEL_AVAILABLE:
-                        name = ch.device_name.decode(errors="ignore").strip('\x00')
-                        handle_hex = hex(ch.channel_handle)
-                        is_fd = bool(ch.device_features & FEATURE_FD_CAPABLE)
-                        for b in buses_to_update:
-                            self.combo_channels[b].addItem(f"{name} ({handle_hex}) {'[FD]' if is_fd else ''}",
-                                {'bustype': 'pcan', 'handle': ch.channel_handle, 'is_fd': is_fd,
-                                 'device_id': ch.device_id, 'device_type': ch.device_type,
-                                 'controller_number': ch.controller_number})
-        except Exception:
-            pass
-            
-        # 2. python-can을 통한 기타 하드웨어 탐색 로직 (주석 처리)
-        # 아래 로직은 PCAN 외 다양한 장치를 탐색하지만, 검색에 시간이 오래 걸릴 수 있어 주석 처리합니다.
-        # 다른 종류의 CAN 장비(Vector, Ixxat, CANable 등)를 사용해야 할 경우, 이 아래의 주석을 해제하세요.
-        # try:
-        #     configs = can.detect_available_configs()
-        #     for cfg in configs:
-        #         iface = cfg.get('interface')
-        #         if iface in ('pcan', 'virtual'): continue # PCAN은 별도 처리, virtual은 하단에서 수동 추가
-                
-        #         ch = cfg.get('channel')
-        #         if iface == 'gs_usb':
-        #             name = f"candleLight / gs_usb ({ch})"
-        #         else:
-        #             name = f"{iface.capitalize()} CAN {ch}" if isinstance(ch, int) else f"{iface.capitalize()} ({ch})"
-        #         for b in buses_to_update:
-        #             self.combo_channels[b].addItem(name, {'bustype': iface, 'handle': ch, 'is_fd': True})
-        # except Exception:
-        #     pass
-            
-        # # 2.5. 직렬(Serial/COM) 포트 기반 CANable (slcan 펌웨어) 탐색
-        # try:
-        #     import serial.tools.list_ports
-        #     ports = serial.tools.list_ports.comports()
-        #     for p in ports:
-        #         if "COM" in p.device: # Windows COM 포트 필터링
-        #             name = f"CANable / slcan ({p.device})"
-        #             for b in buses_to_update:
-        #                 self.combo_channels[b].addItem(name, {'bustype': 'slcan', 'handle': p.device, 'is_fd': False})
-        # except ImportError:
-        #     pass
-
-        # 3. 물리 장비 없이도 테스트할 수 있는 가상 인터페이스(Virtual CAN) 추가 (숨김 처리)
-        # for b in buses_to_update:
-        #     self.combo_channels[b].addItem(f"Test-Only (Virtual {b})", {'bustype': 'virtual', 'handle': f'vcan{b}', 'is_fd': True})
-            
-        for b in buses_to_update:
-            if self.combo_channels[b].count() == 0:
-                self.combo_channels[b].addItem("No available PCAN channels found", None)
-                self.combo_channels[b].setEnabled(False)
-            else:
-                self.on_channel_changed(b) # 초기화 시 FD UI 갱신
+        """Windows: BUS별로 선택된 CAN 방식(PCAN 등)의 채널을 검색합니다."""
+        self._populate_channels(bus_num)
 
     def search_linux_socketcan_channels(self, bus_num=None):
-        """SocketCAN 채널 탐색 및 ComboBox 업데이트 (Linux 전용, PCAN-Basic API 미사용)"""
+        """Linux: SocketCAN(can0~, vcan0~) 채널을 검색합니다."""
+        self._populate_channels(bus_num)
+
+    def _populate_channels(self, bus_num=None):
         buses_to_update = [b for b in ([bus_num] if bus_num else BUS_IDS) if self.buses[b] is None and b not in self._bus_busy]
+        found = {}  # 같은 방식은 한 번만 검색합니다.
         for b in buses_to_update:
-            self.combo_channels[b].clear()
-            self.combo_channels[b].setEnabled(True)
+            backend = self.selected_backend(b)
+            if backend.key not in found:
+                found[backend.key] = backend.list_channels()
+            combo = self.combo_channels[b]
+            combo.clear()
+            combo.setEnabled(True)
             self.combo_bitrate[b].setEnabled(True)
             self.btn_refresh[b].setEnabled(True)
-
-        # 1. SocketCAN 인터페이스 탐색 (can, vcan 등)
-        channels = []
-        try:
-            # /sys/class/net 디렉토리에서 can 및 vcan으로 시작하는 네트워크 인터페이스 탐색
-            for iface in os.listdir('/sys/class/net'):
-                if iface.startswith('can') or iface.startswith('vcan'):
-                    channels.append(iface)
-            channels.sort()
-        except Exception:
-            pass # /sys/class/net이 없는 비정상적인 리눅스 환경일 수 있음
-            
-        for b in buses_to_update:
-            for ch in channels:
-                # vcan 인터페이스의 경우, 테스트용임을 명확히 표기
-                if ch.startswith('vcan'):
-                    display_name = f"Test-Only ({ch})"
-                else:
-                    # PCAN 장치가 peak_usb 드라이버로 잡힌 경우 'canX'로 표시됨
-                    display_name = f"{ch} [SocketCAN]"
-                self.combo_channels[b].addItem(display_name, {'bustype': 'socketcan', 'handle': ch, 'is_fd': True})
-
-            # 2. 물리 장비 없이도 테스트할 수 있는 python-can의 가상 인터페이스 추가 (숨김 처리)
-            # self.combo_channels[b].addItem(f"Test-Only (Virtual {b})", {'bustype': 'virtual', 'handle': f'vcan{b}', 'is_fd': True})
-
-            if self.combo_channels[b].count() == 0:
-                self.combo_channels[b].addItem("No available CAN channels found", None)
-                self.combo_channels[b].setEnabled(False)
+            for text, data in found[backend.key]:
+                combo.addItem(text, dict(data))
+            if combo.count() == 0:
+                combo.addItem(backend.empty_text, None)
+                combo.setEnabled(False)
             else:
                 self.on_channel_changed(b) # 초기화 시 FD UI 갱신
 
     def _open_can(self, bus_num):
-        """OS에 따라 CAN 채널 열기 로직을 분기합니다."""
+        """선택된 채널의 장치 모듈(src/can_devices)로 채널을 엽니다."""
         session = getattr(self, 'session', None)
         if session is not None and not session.busy and bus_num in session.pending_can:
             session.capture_can(bus_num)
@@ -1150,252 +1068,64 @@ class UniversalCANMonitor(QMainWindow):
                     f'BUS {bus_num}: 불러온 설정과 장치가 호환되지 않습니다. 장치/통신 설정을 변경한 뒤 연결하세요.')
                 return
         channel_data = self.combo_channels[bus_num].currentData()
-        if not isinstance(channel_data, dict):
-             self.notify_connection_error("Warning", f"Please select a valid CAN channel for Bus {bus_num}.")
-             return
-
-        bustype = channel_data.get('bustype', 'pcan')
-
-        if platform.system() == 'Linux' and bustype == 'socketcan':
-            self.open_linux_socketcan(bus_num)
-        else:
-            # 윈도우의 모든 경우와, 리눅스의 virtual 등은 이 함수로 처리
-            self.open_generic_can(bus_num)
-
-    def open_generic_can(self, bus_num):
-        """python-can 기반의 채널 열기 및 모니터링 시작 (PCAN, Virtual 등)"""
-        channel_data = self.combo_channels[bus_num].currentData()
         if not isinstance(channel_data, dict) or channel_data.get('handle') is None:
             self.notify_connection_error("Warning", f"Please select a valid CAN channel for Bus {bus_num}.")
             return
+        self._open_device(bus_num, channel_data)
+
+    def _open_settings(self, bus_num):
+        return OpenSettings(
+            bitrate_text=self.combo_bitrate[bus_num].currentText(),
+            bitrate_data=self.combo_bitrate[bus_num].currentData(),
+            data_enabled=self.combo_data_bitrate[bus_num].isEnabled(),
+            data_text=self.combo_data_bitrate[bus_num].currentText(),
+            data_data=self.combo_data_bitrate[bus_num].currentData(),
+            fd_iso=self.combo_fd_iso[bus_num].currentText())
+
+    def _open_device(self, bus_num, channel_data):
+        """장치 모듈로 Bus를 연 뒤, 수신 스레드/화면 상태는 장치와 무관하게 공통 처리합니다."""
+        backend = self.devices.for_bustype(channel_data.get('bustype'))
         channel_handle = channel_data.get('handle')
-        bustype = channel_data.get('bustype', 'pcan')
-            
         try:
             self.reset_tree_values(bus_num)
-            
-            # 선택된 통신 속도 가져오기 (dict 형태)
-            selected_bitrate_kwargs = self.combo_bitrate[bus_num].currentData()
-            kwargs = {'bustype': bustype, 'channel': channel_handle,
-                      'receive_own_messages': bustype != 'pcan'}
-            
-            # FD 통신 설정이 활성화 되어있는지 (Data Bitrate) 확인
-            if bustype == 'pcan':
-                if self.combo_data_bitrate[bus_num].isEnabled():
-                    data_kwargs = self.combo_data_bitrate[bus_num].currentData()
-                    if data_kwargs: 
-                        kwargs['fd'] = True
-                        kwargs['f_clock_mhz'] = 80
-                        kwargs['iso_fd'] = (self.combo_fd_iso[bus_num].currentText() == "ISO")
-                        kwargs.update(selected_bitrate_kwargs)
-                        kwargs.update(data_kwargs)
-                    else:
-                        kwargs['bitrate'] = selected_bitrate_kwargs['bitrate']
-                else:
-                    kwargs['bitrate'] = selected_bitrate_kwargs['bitrate']
-            elif bustype == 'virtual':
-                if self.combo_data_bitrate[bus_num].isEnabled() and self.combo_data_bitrate[bus_num].currentData():
-                    kwargs['fd'] = True
-            else:
-                kwargs['bitrate'] = selected_bitrate_kwargs['bitrate']
-                if self.combo_data_bitrate[bus_num].isEnabled():
-                    data_kwargs = self.combo_data_bitrate[bus_num].currentData()
-                    if data_kwargs:
-                        kwargs['fd'] = True
-                        dbitrate_text = self.combo_data_bitrate[bus_num].currentText()
-                        dbitrate = bitrate_value(dbitrate_text)
-                        kwargs['data_bitrate'] = dbitrate
-            
-            self.bus_capabilities[bus_num]['is_fd'] = kwargs.get('fd', False)
-            self.buses[bus_num] = can.interface.Bus(**kwargs)
-            
+            try:
+                bus_obj, is_fd = backend.open(channel_data, self._open_settings(bus_num))
+            except DeviceOpenCancelled:
+                return
+            except DeviceOpenError as exc:
+                self.notify_connection_error(exc.title, exc.message)
+                return
+            self.bus_capabilities[bus_num]['is_fd'] = bool(is_fd)
+            self.buses[bus_num] = bus_obj
+
             self.rx_threads[bus_num] = CANReceiverThread(self.buses[bus_num], self.db_messages[bus_num])
             self.rx_threads[bus_num].error_signal.connect(lambda err, b=bus_num, generation=self._bus_generation[bus_num]: self.handle_rx_error(err, b) if generation == self._bus_generation[b] else None)
             self.rx_threads[bus_num].raw_msg_signal.connect(
                 lambda ts, cid, data, ext, err, fd, is_rx, brs, b=bus_num, generation=self._bus_generation[bus_num]: self.route_raw_msg_to_record(ts, cid, data, ext, err, fd, is_rx, b, brs) if generation == self._bus_generation[b] else None
             )
             self.rx_threads[bus_num].start()
-            
+
             if not self.ui_update_timer.isActive():
                 self.ui_update_timer.start(50)
-            
+
+            self.combo_backend[bus_num].setEnabled(False)
             self.combo_channels[bus_num].setEnabled(False)
             self.combo_bitrate[bus_num].setEnabled(False)
             self.combo_fd_iso[bus_num].setEnabled(False)
             self.combo_data_bitrate[bus_num].setEnabled(False)
             self.btn_record.setEnabled(True)
-            
+
             if hasattr(self, 'tx_panel'):
                 self.tx_panel.update_all_action_buttons()
                 self.tx_panel.auto_save_packets()
-            
-            self.statusBar().showMessage(f"Bus {bus_num} Opened: {channel_handle} ({bustype})", 5000)
-            
+
+            self.statusBar().showMessage(
+                f"Bus {bus_num} Opened: {channel_handle} ({backend.status_label(channel_data)})", 5000)
+
         except Exception as e:
             self.close_can(bus_num)
-            self.log_bus_event(bus_num, f"연결 실패: {e}", "ERROR", diagnostic_details("CAN 연결"))
-            self.notify_connection_error("Error", f"Failed to open CAN channel for Bus {bus_num}:\n{str(e)}")
-
-    def open_linux_socketcan(self, bus_num):
-        """선택된 채널 열기 및 모니터링 시작 (Linux SocketCAN 전용)"""
-        channel_data = self.combo_channels[bus_num].currentData()
-        if not isinstance(channel_data, dict) or channel_data.get('handle') is None:
-            self.notify_connection_error("Warning", f"Please select a valid CAN channel for Bus {bus_num}.")
-            return
-        channel_handle = channel_data['handle']
-        
-        try:
-            self.reset_tree_values(bus_num)
-            
-            # UI에 표시된 콤보박스 텍스트를 파싱하여 숫자형 bitrate(bps) 추출
-            bitrate_text = self.combo_bitrate[bus_num].currentText()
-            bitrate = bitrate_value(bitrate_text)
-            
-            fd_enabled = False
-            dbitrate = None
-            if self.combo_data_bitrate[bus_num].isEnabled():
-                dbitrate_text = self.combo_data_bitrate[bus_num].currentText()
-                if dbitrate_text not in ("Off", "N/A"):
-                    fd_enabled = True
-                    dbitrate = bitrate_value(dbitrate_text)
-            
-            # vcan(가상 CAN)이 아닌 실제 하드웨어 CAN의 경우 ip link 설정 수행
-            if not channel_handle.startswith('vcan'): # 실제 CAN 하드웨어
-                down_cmd = ['ip', 'link', 'set', channel_handle, 'down']
-                down_result = self._run_linux_ip_command(down_cmd)
-                if down_result is None:
-                    return
-                if down_result.returncode != 0:
-                    self.notify_connection_error("CAN 인터페이스 설정 오류",
-                                                 f"{' '.join(down_cmd)}\n{down_result.stderr.strip()}")
-                    return
-                
-                ip_cmd = ['ip', 'link', 'set', channel_handle, 'up', 'type', 'can', 'bitrate', str(bitrate)]
-                if fd_enabled and dbitrate:
-                    ip_cmd.extend(['dbitrate', str(dbitrate), 'fd', 'on'])
-                    ip_cmd.extend(['fd-non-iso', 'on' if self.combo_fd_iso[bus_num].currentText() == 'Non-ISO' else 'off'])
-                else:
-                    ip_cmd.extend(['fd', 'off'])
-                    
-                res = self._run_linux_ip_command(ip_cmd)
-                if res is None:
-                    return
-                if res.returncode != 0:
-                    try:
-                        is_root = os.geteuid() == 0
-                    except AttributeError:
-                        is_root = False
-                    title = "명령 실행 오류" if is_root else "sudo 인증 실패"
-                    self.notify_connection_error(
-                        title,
-                        f"CAN 인터페이스 '{channel_handle}' 설정에 실패했습니다.\n"
-                        f"실행된 명령어: {' '.join(ip_cmd)}\n오류: {res.stderr.strip()}")
-                    return
-            else: # vcan (가상 CAN)
-                # vcan은 일반적으로 sudo 없이도 up 가능하지만, 실패 시 안내
-                res = self._run_linux_ip_command(['ip', 'link', 'set', channel_handle, 'up'])
-                if res is None:
-                    return
-                if res.returncode != 0:
-                    self.notify_connection_error("권한 오류 가능성",
-                                          f"가상 CAN 인터페이스 '{channel_handle}' 활성화에 실패했습니다.\n"
-                                          f"{res.stderr.strip()}")
-                    return
-
-            # python-can 객체 생성 (SocketCAN 기반)
-            kwargs = {'bustype': 'socketcan', 'channel': channel_handle}
-            if fd_enabled:
-                kwargs['fd'] = True
-            self.bus_capabilities[bus_num]['is_fd'] = fd_enabled
-                
-            self.buses[bus_num] = can.interface.Bus(**kwargs)
-            
-            self.rx_threads[bus_num] = CANReceiverThread(self.buses[bus_num], self.db_messages[bus_num])
-            self.rx_threads[bus_num].error_signal.connect(lambda err, b=bus_num, generation=self._bus_generation[bus_num]: self.handle_rx_error(err, b) if generation == self._bus_generation[b] else None)
-            self.rx_threads[bus_num].raw_msg_signal.connect(
-                lambda ts, cid, data, ext, err, fd, is_rx, brs, b=bus_num, generation=self._bus_generation[bus_num]: self.route_raw_msg_to_record(ts, cid, data, ext, err, fd, is_rx, b, brs) if generation == self._bus_generation[b] else None
-            )
-            self.rx_threads[bus_num].start()
-            
-            if not self.ui_update_timer.isActive():
-                self.ui_update_timer.start(50)
-            
-            self.combo_channels[bus_num].setEnabled(False)
-            self.combo_bitrate[bus_num].setEnabled(False)
-            self.combo_fd_iso[bus_num].setEnabled(False)
-            self.combo_data_bitrate[bus_num].setEnabled(False)
-            self.btn_record.setEnabled(True)
-            
-            if hasattr(self, 'tx_panel'):
-                self.tx_panel.update_all_action_buttons()
-                self.tx_panel.auto_save_packets()
-            
-            self.statusBar().showMessage(f"Bus {bus_num} Opened: {channel_handle} (SocketCAN)", 5000)
-            
-        except Exception as e:
-            self.close_can(bus_num)
-            self.log_bus_event(bus_num, f"연결 실패: {e}", "ERROR", diagnostic_details("SocketCAN 연결"))
-            self.notify_connection_error("Error", f"Failed to open Linux CAN channel for Bus {bus_num}:\n{str(e)}")
-
-    _LINUX_CMD_TIMEOUT_S = 10
-    _SUDO_PASSWORD_TTL_S = 60
-
-    @staticmethod
-    def _linux_ip_binary():
-        """PATH 변조 영향을 받지 않도록 시스템 ip 경로를 우선 사용합니다."""
-        for candidate in ('/usr/sbin/ip', '/sbin/ip', '/usr/bin/ip', '/bin/ip'):
-            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                return candidate
-        return 'ip'
-
-    def _run_linux_subprocess(self, command, **kwargs):
-        try:
-            return subprocess.run(command, capture_output=True, text=True,
-                                  timeout=self._LINUX_CMD_TIMEOUT_S, **kwargs)
-        except subprocess.TimeoutExpired:
-            return subprocess.CompletedProcess(
-                command, 1, '', f'명령이 {self._LINUX_CMD_TIMEOUT_S}초 안에 끝나지 않았습니다.')
-
-    def _run_linux_ip_command(self, command):
-        if command and command[0] == 'ip':
-            command = [self._linux_ip_binary(), *command[1:]]
-        result = self._run_linux_subprocess(command)
-        if result.returncode == 0:
-            return result
-        try:
-            is_root = os.geteuid() == 0
-        except AttributeError:
-            return result
-        if is_root:
-            return result
-        error_text = f'{result.stderr}\n{result.stdout}'.lower()
-        if 'operation not permitted' not in error_text and 'permission denied' not in error_text:
-            return result
-
-        # 1) sudo 자체 인증 캐시(timestamp)가 살아 있으면 비밀번호 없이 실행합니다.
-        elevated = self._run_linux_subprocess(['sudo', '-n', '--', *command])
-        sudo_error = f'{elevated.stderr}\n{elevated.stdout}'.lower()
-        if elevated.returncode == 0 or ('password' not in sudo_error and 'terminal' not in sudo_error):
-            # 성공했거나, sudo 인증은 통과했지만 ip 명령 자체가 실패한 경우: 다시 묻지 않습니다.
-            return elevated
-
-        # 2) 비밀번호는 한 번의 연결 작업(down/up 등 연속 명령)에만 짧게 재사용하고 버립니다.
-        password = ''
-        cached = getattr(self, '_linux_sudo_password', '')
-        if isinstance(cached, tuple) and time.monotonic() - cached[1] < self._SUDO_PASSWORD_TTL_S:
-            password = cached[0]
-        self._linux_sudo_password = ''
-        if not password:
-            password, accepted = QInputDialog.getText(
-                self, 'sudo 인증', 'CAN 인터페이스 설정을 위한 sudo 비밀번호:', QLineEdit.Password)
-            if not accepted or not password:
-                return None
-
-        elevated = self._run_linux_subprocess(['sudo', '-S', '-p', '', '--', *command],
-                                              input=password + '\n')
-        if elevated.returncode == 0:
-            self._linux_sudo_password = (password, time.monotonic())
-        return elevated
+            self.log_bus_event(bus_num, f"연결 실패: {e}", "ERROR", diagnostic_details(backend.diag_context))
+            self.notify_connection_error("Error", backend.open_failure_text.format(bus=bus_num, error=e))
 
     def close_can(self, bus_num=None):
         """채널 닫기 및 초기화"""
@@ -1421,6 +1151,7 @@ class UniversalCANMonitor(QMainWindow):
                     self.buses[b] = None
                     self.bus_capabilities[b]['is_fd'] = False
                 
+            self.combo_backend[b].setEnabled(True)
             self.combo_channels[b].setEnabled(True)
             self.combo_bitrate[b].setEnabled(True)
             
