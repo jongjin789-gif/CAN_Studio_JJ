@@ -26,10 +26,20 @@ def device_identity(data):
     handle = data['handle']
     handle = getattr(handle, 'value', handle)
     identity = dict(bustype=data.get('bustype', 'pcan'), handle=handle)
-    for key in ('device_id', 'device_type', 'controller_number'):
+    for key in ('device_id', 'device_type', 'controller_number', 'serial', 'dongle_channel'):
         if key in data:
             identity[key] = data[key]
     return identity
+
+
+def same_device(first, second):
+    """CANlib channel numbers can change on rescan; match the physical port."""
+    if first is None or second is None:
+        return False
+    if (first.get('bustype') == second.get('bustype') == 'kvaser'
+            and all(key in item for item in (first, second) for key in ('serial', 'dongle_channel'))):
+        return all(first[key] == second[key] for key in ('serial', 'dongle_channel'))
+    return first == second
 
 
 class SessionManager(QObject):
@@ -408,7 +418,7 @@ class SessionManager(QObject):
         combo = m.combo_channels[bus]
         desired = cfg['device']
         index = next((i for i in range(combo.count())
-                      if desired is not None and device_identity(combo.itemData(i)) == desired), -1)
+                      if same_device(device_identity(combo.itemData(i)), desired)), -1)
         if index < 0:
             combo.setCurrentIndex(-1)
         else:

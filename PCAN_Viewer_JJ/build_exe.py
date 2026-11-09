@@ -16,7 +16,7 @@ except ImportError:
 # =====================================================================
 # 소프트웨어 버전 설정 (빌드 시 생성되는 실행 파일명에 반영됩니다)
 # =====================================================================
-APP_VERSION = "R012_1"
+APP_VERSION = "R013"
 
 def _collect_hidden_imports():
     """
@@ -284,10 +284,16 @@ chmod +x {app_prefix}_{APP_VERSION}_linux
 {app_prefix}_{APP_VERSION}_win.exe 파일을 더블클릭하여 실행하세요.
 
 [주의 사항]
-- PEAK-System PCAN 드라이버가 PC에 설치되어 있어야 CAN 통신이 정상적으로 동작합니다.
+- PCAN 장치는 PEAK-System PCAN 드라이버, Kvaser 장치는 Kvaser Drivers for Windows가 필요합니다.
+- Kvaser 드라이버: https://kvaser.com/download/ (설치 후 장치 연결 및 프로그램 재실행)
+- 통신 설정의 CAN 방식에서 PCAN/Kvaser 선택 → Refresh → Channel/속도 설정 → Open.
+- Kvaser FD 지원 채널은 Data Bitrate에서 Off 이외의 값을 선택합니다. 지원 속도/ISO 모드는 장치에 따라 다릅니다.
 - 가상환경 폴더나 소스코드(src)를 같이 들고 다닐 필요 없이, 이 폴더 내용물만 복사해서 배포/사용하시면 됩니다!
 
 [{APP_VERSION} 기능 및 사용 안내]
+- CAN 방식(PCAN/Kvaser)을 BUS별로 선택합니다. 서로 다른 BUS에서 PCAN과 Kvaser를 함께 사용할 수 있습니다.
+- Kvaser 채널은 S/N과 장치 내부 채널 번호(#)로 구분하며, Refresh로 새로 연결한 장치를 다시 검색합니다.
+- 가상 채널([Virtual])만 보이면 드라이버 설치 후 재부팅 여부와 장치 관리자의 Kvaser 장치 인식 상태를 확인하세요.
 - User Panel: Add TX Tool → sequence → 명령 시퀀스 설정에서 CMD/RCV/DEL을 등록합니다.
 - DBC 없이 CMD 데이터와 RCV 비트 조건을 수정·실행하며, 패널 Save에 함께 저장됩니다.
 - sequence Force/Packet Control은 각 sequence 도구에서 실행하며, 전역 Force RUN 모드는 없습니다.

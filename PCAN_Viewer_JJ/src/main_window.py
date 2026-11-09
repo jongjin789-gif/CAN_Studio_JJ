@@ -27,7 +27,7 @@ from src.session_manager import SessionManager
 from src.main_menu import install_main_menu
 from src.connection_controls import ConnectionGrid, CollapsibleGroup, BusLogDialog, FIELD_KEYS
 from src.bus_config import normalized_signature
-from src.session_manager import device_identity
+from src.session_manager import device_identity, same_device
 from src.button_icons import decorate_button, button_icon
 from src.main_theme import apply_main_theme, packet_section
 
@@ -229,7 +229,7 @@ class UniversalCANMonitor(QMainWindow):
         desired = device_identity(self.combo_channels[bus].currentData())
         for other in BUS_IDS:
             if (other != bus and self.buses[other] is not None and desired is not None
-                    and desired == device_identity(self.combo_channels[other].currentData())):
+                    and same_device(desired, device_identity(self.combo_channels[other].currentData()))):
                 self.log_bus_event(bus, f'연결 실패: BUS {other}에서 같은 장치를 사용 중입니다.', 'ERROR')
                 return
         self._bus_busy.add(bus)
@@ -1013,7 +1013,7 @@ class UniversalCANMonitor(QMainWindow):
             desired, bitrate, iso, data_bitrate = previous[bus]
             combo = self.combo_channels[bus]
             index = next((i for i in range(combo.count())
-                          if desired is not None and device_identity(combo.itemData(i)) == desired), -1)
+                          if same_device(device_identity(combo.itemData(i)), desired)), -1)
             if desired is None:
                 index = next((i for i in range(combo.count())
                               if device_identity(combo.itemData(i)) is not None), -1)

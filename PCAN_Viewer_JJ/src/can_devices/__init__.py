@@ -2,12 +2,12 @@
 
     device_base.py       common contract (CanDeviceBackend)
     device_pcan.py       PCAN-Basic (Windows)
+    device_kvaser.py     Kvaser CANlib (Windows)
     device_socketcan.py  SocketCAN can0~ (Linux, any adapter vendor)
     device_pythoncan.py  generic python-can interfaces (fallback, not listed yet)
 
-Adding a method (e.g. Kvaser):
-    1. create ``device_kvaser.py`` with a ``CanDeviceBackend`` subclass
-       (key='kvaser', bustypes=('kvaser',), platforms=('Windows',));
+Adding a method:
+    1. create ``device_<name>.py`` with a ``CanDeviceBackend`` subclass;
     2. add the class to ``BACKEND_CLASSES`` below.
 Existing modules and the rest of the program do not need to change.
 """
@@ -16,11 +16,12 @@ import platform
 from .device_base import (CanDeviceBackend, DeviceOpenCancelled, DeviceOpenError,  # noqa: F401
                           OpenSettings, DEFAULT_NOMINAL_INDEX)
 from .device_pcan import PcanBackend
+from .device_kvaser import KvaserBackend
 from .device_pythoncan import PythonCanBackend
 from .device_socketcan import SocketCanBackend
 
 # Order defines the order in the "CAN 방식" combo box.
-BACKEND_CLASSES = (PcanBackend, SocketCanBackend, PythonCanBackend)
+BACKEND_CLASSES = (PcanBackend, KvaserBackend, SocketCanBackend, PythonCanBackend)
 FALLBACK_KEY = PythonCanBackend.key
 
 

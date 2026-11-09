@@ -1,4 +1,4 @@
-# Tested with Python 3.13 (R012_1). "~=" allows bug-fix releases but blocks
+# Tested with Python 3.13 (R013). "~=" allows bug-fix releases but blocks
 # minor/major upgrades that could change behavior or break the PyInstaller build.
 PyQt5~=5.15.11
 python-can~=4.6.1

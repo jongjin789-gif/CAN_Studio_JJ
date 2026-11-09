@@ -1,6 +1,19 @@
-# Universal CAN Monitor - 사용자 매뉴얼 (R012_1)
+# Universal CAN Monitor - 사용자 매뉴얼 (R013)
 
 이 문서는 Universal CAN Monitor의 주요 기능과 사용법을 상세히 설명합니다.
+
+## Kvaser 연결 (Windows)
+
+1. [Kvaser 다운로드](https://kvaser.com/download/)에서 **Kvaser Drivers for Windows**를 설치하고, 설치 프로그램이 요청하면 PC를 재부팅한 뒤 장치를 연결합니다. 드라이버를 처음 설치한 경우 프로그램을 다시 실행합니다. 기존 `python-can`을 사용하므로 Python `canlib` 패키지나 CANlib SDK를 추가로 설치할 필요는 없습니다.
+2. 메인창 또는 유저패널의 **통신 설정 / DBC**에서 BUS별 **CAN 방식 → Kvaser**를 선택하고 **Refresh**를 누릅니다. PCAN과 Kvaser를 서로 다른 BUS에서 함께 사용할 수 있습니다.
+3. **Channel**의 장치명·일련번호(S/N)·장치 내부 채널 번호(#)를 확인하고 **Baudrate**를 설정합니다. `[Virtual]`은 드라이버의 가상 채널입니다.
+4. Classic CAN은 **Data Bitrate → Off**, CAN FD는 `[FD]` 채널에서 **Data Bitrate**와 **FD ISO**를 설정한 뒤 **Open**을 누릅니다. 지원하지 않는 FD 모드는 연결 시 안내합니다. 실제 최대 속도는 장치 사양을 확인하세요.
+
+드라이버 미설치 시 채널 목록에 설치 안내가 표시됩니다. 드라이버 설치만으로 기존 EXE에 Kvaser 선택 항목이 추가되지는 않으며, 변경된 소스로 재빌드해야 합니다. 장비가 없으면 실제 CAN 송수신은 검증할 수 없습니다. Linux에서는 Kvaser의 커널 드라이버가 제공하는 `canX`를 **SocketCAN**으로 선택합니다.
+
+**가상 채널만 2개 보이는 경우**: `Kvaser Virtual CAN Driver [Virtual]`은 테스트용 채널이며 실제 장치의 포트가 아닙니다. Windows 장치 관리자에서 실제 Kvaser 장치의 상태를 확인하세요. 장치 관리자에 Kvaser 장치가 아예 없으면 Windows가 USB 장치를 인식하지 못한 상태입니다. 드라이버 설치 후 재부팅을 했는지 확인하고, 허브 없이 PC USB 포트에 직접 연결하거나 케이블·포트를 바꿔 보세요. 오류 코드 28이면 드라이버 패키지가 설치되어 있어도 물리 장치에 드라이버가 적용되지 않은 상태입니다. 프로그램을 종료하고 Kvaser Drivers for Windows 설치 프로그램을 관리자 권한으로 실행해 복구/재설치한 뒤 USB를 다시 연결하세요. 장치 상태가 정상인 것을 확인하고 프로그램에서 Refresh를 누릅니다. Refresh는 CANlib 장치를 다시 검색하며, 번호가 바뀌어도 일련번호와 장치 내부 채널 번호로 선택을 유지합니다.
+
+**USBcan Light 4xHS**는 Classic CAN 4채널 제품입니다(50 kbit/s~1 Mbit/s). 정상 인식되면 이 장치명으로 내부 채널 `#1`~`#4`가 표시되며 CAN FD 설정은 비활성화됩니다. 가상 채널 2개가 함께 표시되어 전체 목록이 6개일 수도 있습니다.
 
 ## 통합 설정 및 메뉴바 (2026-09-29 추가)
 
@@ -65,7 +78,7 @@
 ### 채널 연결
 1.  **Connection Control** 패널에서 연결할 **Bus**를 선택합니다. (4개 채널 동시 지원)
 2.  BUS별로 **CAN 방식**을 고른 뒤, 그 방식으로 검색된 CAN 하드웨어 채널과 통신 속도(Baudrate)를 선택합니다.
-    - Windows: **PCAN** (PCAN-Basic 드라이버). Kvaser, 범용(python-can) 방식은 추후 추가 예정입니다.
+    - Windows: **PCAN** (PCAN-Basic 드라이버), **Kvaser** (Kvaser Drivers for Windows / CANlib). Kvaser 상세는 문서 앞쪽의 [Kvaser 연결 (Windows)](#kvaser-연결-windows)을 참고하세요.
     - Linux: **SocketCAN** (`can0`, `can1` …, 테스트용 `vcan0`). 장치 제조사와 관계없이 커널 드라이버로 잡힌 인터페이스를 사용합니다.
     - CAN 방식은 연결 중에는 바꿀 수 없으며, 통합 설정에 BUS별로 저장됩니다. 이전 설정 파일은 저장된 장치 종류로 방식을 판단합니다.
 3.  **CAN FD** 통신인 경우, FD 옵션을 활성화하고 데이터 통신 속도(Data Baudrate)를 설정합니다.
@@ -392,13 +405,13 @@ Tx Panel 툴바의 **User Panel** 버튼으로 여는 사용자 정의 조작/�
 
 ## 7. 실행·빌드 및 버전
 
-버전은 `build_exe.py`의 `APP_VERSION = "R012_1"`로 지정합니다.
+버전은 `build_exe.py`의 `APP_VERSION = "R013"`로 지정합니다.
 
 - 소스 실행: 의존성 설치 및 가상환경 활성화 후 `python main.py`. 버전 변경은 재실행 시 반영됩니다.
 - 빌드: 같은 환경에서 `python build_exe.py`.
-- Windows 실행 파일: `dist/PCAN_Viewer_JJ_R012_1_win/PCAN_Viewer_JJ_R012_1_win.exe`.
-- Linux 바이너리: `dist/PCAN_Viewer_JJ_R012_1_linux/PCAN_Viewer_JJ_R012_1_linux`.
-- 제목은 실행 파일명에서 버전을 읽습니다. 소스 수정 후 기존 실행 파일은 바뀌지 않으므로 R012_1를 다시 빌드해야 합니다.
+- Windows 실행 파일: `dist/PCAN_Viewer_JJ_R013_win/PCAN_Viewer_JJ_R013_win.exe`.
+- Linux 바이너리: `dist/PCAN_Viewer_JJ_R013_linux/PCAN_Viewer_JJ_R013_linux`.
+- 제목은 실행 파일명에서 버전을 읽습니다. 소스 수정 후 기존 실행 파일은 바뀌지 않으므로 R013를 다시 빌드해야 합니다.
 - 배포 폴더에 사용자 매뉴얼·시퀀스 사용법·변경 내역·OS별 실행 안내가 함께 복사됩니다.
 - 기본 글꼴은 Consolas입니다. 설치되지 않은 환경과 지원하지 않는 한글 등은 시스템 대체 글꼴이 표시될 수 있습니다.
 - Linux 세션은 이전 연결 상태와 관계없이 BUS를 Close로 시작합니다. 개발 테스트는 Python 3.13에서 `python -B -m unittest discover -s tests`로 실행하며, 실제 CAN 장비와 OS별 빌드 결과는 별도 검증해야 합니다.
