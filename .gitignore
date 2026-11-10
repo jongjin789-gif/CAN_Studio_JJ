@@ -11,3 +11,38 @@ log/
 
 # App runtime state
 CAN_Studio_JJ/CAN_Studio_JJ.pk
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.p7b
+*.p7c
+*.p8
+*.jks
+*.keystore
+*.ppk
+*.crt
+*.cer
+*.der
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+credentials
+credentials.json
+credentials.*
+secrets
+secrets.json
+secrets.*
+service-account*.json
+**/.aws/credentials
+.netrc
+.npmrc
+.pypirc
+**/.docker/config.json
