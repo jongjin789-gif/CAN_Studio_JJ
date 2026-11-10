@@ -10,4 +10,4 @@ log/
 *.py[cod]
 
 # App runtime state
-PCAN_Viewer_JJ_R007/PCAN_Viewer_JJ.pk
+CAN_Studio_JJ/CAN_Studio_JJ.pk

@@ -21,7 +21,7 @@
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
       "data_bitrate": "Off",
-      "is_open": false
+      "is_open": true
     },
     "2": {
       "backend": "kvaser",
@@ -35,7 +35,7 @@
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
       "data_bitrate": "N/A",
-      "is_open": false
+      "is_open": true
     },
     "3": {
       "backend": "pcan",

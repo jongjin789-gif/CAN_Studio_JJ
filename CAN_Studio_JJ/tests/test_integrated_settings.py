@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -316,6 +317,19 @@ class IntegratedSettingsTest(unittest.TestCase):
             with self.assertRaises(OSError):
                 write_session(self.file, state)
         self.assertEqual(self.file.read_bytes(), before)
+
+    def test_legacy_format_name_is_read_and_saved_as_new_name(self):
+        state = self.session.capture()
+        self.assertEqual(state['format'], 'CAN_Studio_JJ_SESSION')
+        legacy = dict(state, format='PCAN_VIEWER_SESSION')
+        self.file.write_text(json.dumps(legacy), encoding='utf-8')
+        loaded = read_session(self.file)
+        self.assertEqual(loaded['format'], 'CAN_Studio_JJ_SESSION')
+        write_session(self.file, loaded)
+        self.assertEqual(json.loads(self.file.read_bytes())['format'], 'CAN_Studio_JJ_SESSION')
+        self.file.write_text(json.dumps(dict(state, format='OTHER_SESSION')), encoding='utf-8')
+        with self.assertRaises(ValueError):
+            read_session(self.file)
 
 
 if __name__ == '__main__':

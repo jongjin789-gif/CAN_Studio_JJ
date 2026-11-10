@@ -10,7 +10,10 @@ import copy
 from src.bus_config import BUS_IDS, default_can_config
 
 EXTENSION = '.pjjsettings'
-FORMAT = 'PCAN_VIEWER_SESSION'
+FORMAT = 'CAN_Studio_JJ_SESSION'
+# Files saved before the CAN Studio JJ rename (R012_1 and earlier) are read and
+# converted to FORMAT; the next save writes the new name.
+LEGACY_FORMATS = ('PCAN_VIEWER_SESSION',)
 MAX_BYTES = 64 * 1024 * 1024
 
 
@@ -50,9 +53,11 @@ def compile_formula(expr, signal_count):
 
 
 def validate_structure(data):
-    if (not isinstance(data, dict) or data.get('format') != FORMAT
+    if (not isinstance(data, dict) or data.get('format') not in (FORMAT, *LEGACY_FORMATS)
             or type(data.get('version')) is not int or data['version'] not in (1, 2)):
         raise ValueError('지원하지 않는 통합 설정 파일 형식/버전입니다.')
+    if data['format'] != FORMAT:
+        data = dict(data, format=FORMAT)
     expected = {'1', '2', '3'} if data['version'] == 1 else {str(b) for b in BUS_IDS}
     for key in ('databases', 'can'):
         if not isinstance(data.get(key), dict) or set(data[key]) != expected:
