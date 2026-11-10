@@ -11,9 +11,10 @@ from src.can_devices import (DeviceRegistry, DeviceOpenCancelled, DeviceOpenErro
                              DEFAULT_NOMINAL_INDEX)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QLabel, 
                              QComboBox, QPushButton, QListWidget, QListWidgetItem, QShortcut, QLineEdit,
-                             QTreeWidget, QSplitter, QMessageBox, QFileDialog, QTreeWidgetItemIterator, QInputDialog)
+                             QTreeWidget, QSplitter, QMessageBox, QFileDialog, QTreeWidgetItemIterator, QInputDialog,
+                             QMenu)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
-from PyQt5.QtGui import QFont, QIcon, QKeySequence
+from PyQt5.QtGui import QFont, QIcon, QKeySequence, QBrush, QColor
 from src.utils import get_resource_path, ReceiveTreeWidgetItem
 from src.can_threads import CANReceiverThread
 from src.graph_realtime import SignalGraphWindow
@@ -24,6 +25,12 @@ from src.log_viewer import LogViewerWindow
 from src.tx_panel import TxPanel
 from src.user_panel import UserPanelWindow
 from src.session_manager import SessionManager
+from src.app_info import APP_NAME, VIEWER_APP_NAME
+from src.bus_monitor import BusLoadMeter
+from src.signal_monitor import TimeoutMonitor, SignalStatsDialog
+from src.gateway import Gateway, GatewayDialog
+from src.trigger_capture import TriggerCapture, TriggerDialog
+from src.bus_config import bitrate_value
 from src.main_menu import install_main_menu
 from src.connection_controls import ConnectionGrid, CollapsibleGroup, BusLogDialog, FIELD_KEYS
 from src.bus_config import normalized_signature
@@ -44,6 +51,38 @@ def _signal_display_decimals(signal):
                decimal_places(getattr(signal, "offset", 0.0)))
 
 
+TRIGGER_COLUMN = 9
+_PCAN_ERROR_TYPES = {1: '비트 오류', 2: '폼 오류', 4: '스터프 오류', 8: '기타(ACK/CRC) 오류'}
+
+
+def describe_error_frame(frame, bustype):
+    """Likely cause and detail text for the latest error frame of a BUS."""
+    hint = '다른 노드 연결, Baudrate(양쪽 동일), 종단저항(120 Ω), 배선을 확인하세요.'
+    if frame is None:
+        return '버스 오류', hint
+    can_id, data = frame
+    if bustype == 'pcan' and len(data) >= 4:
+        # PCAN-Basic error frame: ID = error type, DATA = direction, ECC, REC, TEC.
+        kind = _PCAN_ERROR_TYPES.get(can_id, '버스 오류')
+        direction = '송신 중' if data[0] == 0 else '수신 중'
+        ack = data[0] == 0 and (data[1] & 0x1F) == 0x19   # ECC segment: ACK slot
+        cause = 'ACK 없음 (받아 줄 노드 없음 또는 Baudrate 불일치)' if ack else f'{kind} ({direction})'
+        details = (f'PCAN 오류 프레임: {kind}, {direction}, ECC 0x{data[1]:02X}, '
+                   f'REC {data[2]}, TEC {data[3]}\n{hint}')
+        return cause, details
+    return '버스 오류', f'마지막 오류 프레임: ID 0x{can_id:X}, DATA {data.hex(" ").upper() or "-"}\n{hint}'
+EVENT_MERGE_SECONDS = 5.0
+EVENT_MERGE_DEPTH = 8
+_NUMBER = re.compile(r'(?<![0-9A-Za-z])\d+(?:\.\d+)?(?![0-9A-Za-z])')
+
+
+def _event_key(message):
+    """Message text with standalone decimal numbers masked; CAN IDs like 0x1A0 are kept."""
+    return _NUMBER.sub('#', message)
+SIGNAL_KEY_ROLE = Qt.UserRole + 6   # (bus, can_id, signal) on RX signal rows
+TIMEOUT_ROLE = Qt.UserRole + 7      # message row currently shown as timed out
+
+
 class UniversalCANMonitor(QMainWindow):
     bus_state_changed = pyqtSignal(int)
 
@@ -59,9 +98,9 @@ class UniversalCANMonitor(QMainWindow):
         version_str = f" - {app_version}" if app_version else ""
         
         if self.viewer_only:
-            self.setWindowTitle(f'Log Viewer{version_str}')
+            self.setWindowTitle(f'{VIEWER_APP_NAME}{version_str}')
         else:
-            self.setWindowTitle(f'PCAN Monitoring{version_str}')
+            self.setWindowTitle(f'{APP_NAME}{version_str}')
         self.setWindowIcon(QIcon(get_resource_path(os.path.join("icon", "viewer.png"))))
         self.resize(600, 200) if self.viewer_only else self.resize(1280, 800)
         
@@ -73,8 +112,12 @@ class UniversalCANMonitor(QMainWindow):
         self._bus_generation = {b: 0 for b in BUS_IDS}
         self.bus_events = {b: deque(maxlen=500) for b in BUS_IDS}
         self.bus_issues = {}
+        self.bus_meters = {b: BusLoadMeter() for b in BUS_IDS}
+        self._lost_polls = {b: 0 for b in BUS_IDS}
+        self.bus_error_counters = {b: None for b in BUS_IDS}
         self._bus_log_windows = {}
         self.rx_threads = {b: None for b in BUS_IDS}
+        self._retired_rx_threads = deque(maxlen=16)
         self.db_messages = {b: {} for b in BUS_IDS} # {bus_num: {can_id: cantools.message.Message}}
         self.signal_tree_items = {} # {(bus_num, can_id, signal_name): QTreeWidgetItem}
         self.signal_choices = {} # Legacy name-only graph fallback; RX uses its exact message definition.
@@ -91,6 +134,19 @@ class UniversalCANMonitor(QMainWindow):
         self._session_generation = 0
         self._graph_pending_frames = {}
         self._panel_pending_frames = {}
+        # Tools: receive timeout notification, BUS gateway, trigger capture.
+        self.timeout_monitor = TimeoutMonitor()
+        self._last_timeout_check = 0.0
+        self.gateway = Gateway(self)
+        self.gateway.forwarded.connect(self._on_gateway_forwarded)
+        self.gateway.failed.connect(self._on_gateway_failed)
+        self.trigger = TriggerCapture(self, resolve_message=lambda bus, can_id: self.db_messages.get(bus, {}).get(can_id))
+        self.trigger.state_changed.connect(self.refresh_trigger_cell)
+        self.trigger.saved.connect(self._on_trigger_saved)
+        self.trigger.save_failed.connect(self._on_trigger_failed)
+        self._trigger_item = None
+        self._stats_dialog = None
+        self._gateway_dialog = None
         
         self.init_ui()
         self.statusBar().messageChanged.connect(lambda message: self.panel_system_event(message) if message else None)
@@ -107,6 +163,7 @@ class UniversalCANMonitor(QMainWindow):
         self.bus_status_timer = QTimer(self)
         self.bus_status_timer.setInterval(1000)
         self.bus_status_timer.timeout.connect(self.poll_bus_status)
+        self.bus_status_timer.timeout.connect(self.update_bus_load)
         if not self.viewer_only:
             self.bus_status_timer.start()
         
@@ -145,7 +202,13 @@ class UniversalCANMonitor(QMainWindow):
             if result is None:
                 continue
             state, detail = result
-            if state == 'busoff':
+            # Two polls in a row (~2 s) so a transient driver answer cannot drop a link.
+            self._lost_polls[bus] = self._lost_polls[bus] + 1 if state == 'lost' else 0
+            if state == 'lost':
+                if self._lost_polls[bus] >= 2:
+                    self.log_bus_event(bus, '장치 분리 감지 · 연결 해제', 'ERROR', detail)
+                    self.close_can(bus)
+            elif state == 'busoff':
                 self.log_bus_event(bus, 'Bus-Off · 오류로 연결 해제', 'ERROR', detail)
                 self.close_can(bus)
             elif state == 'warn':
@@ -154,21 +217,86 @@ class UniversalCANMonitor(QMainWindow):
                 self.bus_issues.pop(bus, None)
                 self.log_bus_event(bus, 'CAN 버스 경고 해소')
 
+    def update_bus_load(self):
+        """Close the 1 s load window and read controller error counters (if supported)."""
+        changed = False
+        for bus in BUS_IDS:
+            device = self.buses[bus]
+            if device is None or bus in self._bus_busy:
+                continue
+            self.bus_meters[bus].sample()
+            self._report_error_frames(bus)
+            cfg = self.combo_channels[bus].currentData() or {}
+            try:
+                backend = self.devices.for_bustype(cfg.get('bustype')) if isinstance(cfg, dict) else None
+                self.bus_error_counters[bus] = backend.error_counters(device) if backend else None
+            except Exception:
+                self.bus_error_counters[bus] = None
+            changed = True
+        if changed:
+            # The User Panel's mirrored grid refreshes itself on its own timer.
+            self.connection_grid.refresh()
+
+    def _report_error_frames(self, bus):
+        """Count error frames from the receiver thread and log the likely cause (1 s window)."""
+        thread = self.rx_threads.get(bus)
+        meter = self.bus_meters[bus]
+        if thread is None:
+            return
+        total = thread.error_frames
+        new = total - meter.error_frames
+        meter.error_frames = total
+        if new <= 0:
+            return
+        cfg = self.combo_channels[bus].currentData() or {}
+        cause, details = describe_error_frame(thread.last_error_frame,
+                                              cfg.get('bustype') if isinstance(cfg, dict) else None)
+        self.log_bus_event(bus, f'오류 프레임 {new:,}개/초 · {cause}', 'WARN', details, issue=False)
+
+    def bus_load_text(self, bus):
+        """Load / fps / error frames shown after the State summary while connected."""
+        if self.buses.get(bus) is None or bus in self._bus_busy:
+            return ''
+        return self.bus_meters[bus].text(self.bus_error_counters.get(bus))
+
+    def _account_frame(self, bus_num, data, is_ext, is_err, is_fd, is_brs):
+        meter = self.bus_meters.get(bus_num)
+        if meter is not None and self.buses.get(bus_num) is not None:
+            meter.feed(len(data), bool(is_ext), bool(is_fd), bool(is_brs), bool(is_err))
+
     def log_bus_event(self, bus, message, level='INFO', details='', issue=True):
         events = self.bus_events[bus]
         now = time.monotonic()
-        if (events and events[-1]['message'] == message and events[-1]['level'] == level
-                and now - events[-1]['monotonic'] < 2):
-            events[-1]['count'] += 1
-            events[-1]['monotonic'] = now
+        message = str(message)
+        key = _event_key(message)
+        # A repeating condition (same text apart from changing numbers, e.g. TX delay
+        # counters) updates one entry instead of filling the 500-entry history and
+        # pushing out the original cause.
+        # Look a few entries back: several conditions often repeat interleaved
+        # (error frames, TX delay, bus warning) and must each stay on one line.
+        last = next((event for event in list(events)[-EVENT_MERGE_DEPTH:][::-1]
+                     if event.get('key') == key and event['level'] == level
+                     and now - event['monotonic'] < EVENT_MERGE_SECONDS), None)
+        repeated = last is not None
+        if repeated:
+            events.remove(last)
+            events.append(last)   # keep the history ordered by the latest occurrence
+            last['count'] += 1
+            last['monotonic'] = now
+            last['last_time'] = datetime.now().strftime('%H:%M:%S')
+            last['message'] = message
+            if details:
+                last['details'] = str(details)
         else:
             events.append(dict(time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                               monotonic=now, message=str(message), level=level,
+                               monotonic=now, message=message, level=level, key=key,
                                details=str(details), count=1))
         if issue and level in ('ERROR', 'WARN'):
             if level == 'ERROR' or self.bus_issues.get(bus, ('', ''))[1] != 'ERROR':
                 self.bus_issues[bus] = (' '.join(str(message).split()), level)
-        self.panel_system_event(f'BUS {bus}: {message}', level)
+        if not repeated:
+            # The User Panel log gets the first line of a repeating condition only.
+            self.panel_system_event(f'BUS {bus}: {message}', level)
         self.bus_state_changed.emit(bus)
 
     def show_bus_log(self, bus, parent=None):
@@ -280,7 +408,8 @@ class UniversalCANMonitor(QMainWindow):
         if getattr(sys, 'frozen', False):
             try:
                 exe_name = os.path.basename(sys.executable)
-                match = re.search(r'Viewer_JJ_(.+?)_(?:win|linux|mac)', exe_name, re.IGNORECASE)
+                # e.g. CAN_Studio_JJ_R013_win.exe, CAN_Studio_Viewer_JJ_R013_linux, PCAN_Viewer_JJ_R012_1_win.exe
+                match = re.search(r'_JJ_(.+?)_(?:win|linux|mac)', exe_name, re.IGNORECASE)
                 if match:
                     return match.group(1)
             except Exception:
@@ -407,6 +536,18 @@ class UniversalCANMonitor(QMainWindow):
         
         btn_layout.addStretch()
 
+        self.btn_stats = QPushButton("Stats")
+        decorate_button(self.btn_stats, 'stats',
+                        '신호 통계(최소·최대·평균)와 수신 타임아웃 알림 설정을 엽니다.')
+        self.btn_stats.clicked.connect(self.open_signal_stats)
+        btn_layout.addWidget(self.btn_stats)
+
+        self.btn_gateway = QPushButton("Gateway")
+        decorate_button(self.btn_gateway, 'gateway',
+                        'BUS 간 게이트웨이: 수신 프레임을 다른 BUS로 전달/차단/ID 변환합니다.', 'GW')
+        self.btn_gateway.clicked.connect(self.open_gateway)
+        btn_layout.addWidget(self.btn_gateway)
+
         self.btn_close_graphs = QPushButton("Close Graphs")
         decorate_button(self.btn_close_graphs, 'graph_close', '이 메인창에서 연 모든 실시간 그래프를 닫습니다.')
         self.btn_close_graphs.clicked.connect(self.close_graphs)
@@ -426,7 +567,7 @@ class UniversalCANMonitor(QMainWindow):
         tree_layout.addLayout(btn_layout)
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(['Bus', 'Type', 'CAN ID', 'Message / Signal', 'Dir.', 'Value', 'Unit', 'Cycle (ms)', 'Count'])
+        self.tree.setHeaderLabels(['Bus', 'Type', 'CAN ID', 'Message / Signal', 'Dir.', 'Value', 'Unit', 'Cycle (ms)', 'Count', 'Trigger'])
         self.tree.setColumnWidth(0, 40)  # Bus
         self.tree.setColumnWidth(1, 50)  # Type
         self.tree.setColumnWidth(2, 90)  # CAN ID
@@ -436,6 +577,14 @@ class UniversalCANMonitor(QMainWindow):
         self.tree.setColumnWidth(6, 80)  # Unit
         self.tree.setColumnWidth(7, 100) # Cycle
         self.tree.setColumnWidth(8, 80)  # Count
+        self.tree.setColumnWidth(TRIGGER_COLUMN, 130)
+        self.tree.headerItem().setIcon(TRIGGER_COLUMN, button_icon('trigger'))
+        self.tree.headerItem().setToolTip(
+            TRIGGER_COLUMN, '신호 행의 이 칸을 더블클릭(또는 우클릭 → 트리거 설정)하여 트리거를 등록합니다.\n'
+                            '조건이 참이 되면 앞뒤 1~2초의 모든 BUS 프레임을 Log 폴더에 TRC로 저장합니다. (1개만 등록)')
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_tree_menu)
+        self.tree.itemDoubleClicked.connect(self.on_tree_double_clicked)
         self.tree.setSortingEnabled(True)
         self.tree.sortByColumn(0, Qt.AscendingOrder) # Bus, then numeric CAN ID within each bus.
         self.tree.itemChanged.connect(self.on_tree_item_changed)
@@ -711,6 +860,9 @@ class UniversalCANMonitor(QMainWindow):
         self.record_window.show()
             
     def route_raw_msg_to_record(self, ts, can_id, data, is_ext, is_err, is_fd, is_rx, bus_num, is_brs=False):
+        self._account_frame(bus_num, data, is_ext, is_err, is_fd, is_brs or (is_fd and not is_rx))
+        if not is_err:
+            self.trigger.feed(ts, bus_num, can_id, data, is_ext, is_fd, is_rx)
         if not is_err:
             self._graph_pending_frames[(bus_num, can_id, is_ext)] = (ts, bytes(data))
             self.queue_panel_message(bus_num, can_id, data, ts)
@@ -772,6 +924,12 @@ class UniversalCANMonitor(QMainWindow):
             # A periodic record may arrive after a newer immediate CMD record.
             # Keep latest-value/cycle displays monotonic, but retain the older TX in the trace.
             rx_thread.latest_msg_stats[can_id] = stats
+            account = getattr(self, '_account_frame', None)
+            if account is not None:
+                account(bus_num, payload, is_ext, False, is_fd, bool(is_fd))
+            trigger = getattr(self, 'trigger', None)
+            if trigger is not None:
+                trigger.feed(now, bus_num, can_id, payload, is_ext, is_fd, False)
             recorder = getattr(self, 'record_window', None)
             if recorder is not None and recorder.isVisible():
                 recorder.add_log_entry(now, can_id, payload, is_ext, False,
@@ -1097,8 +1255,20 @@ class UniversalCANMonitor(QMainWindow):
                 return
             self.bus_capabilities[bus_num]['is_fd'] = bool(is_fd)
             self.buses[bus_num] = bus_obj
+            meter = self.bus_meters[bus_num]
+            try:
+                meter.nominal = bitrate_value(self.combo_bitrate[bus_num].currentText()) or 500_000
+                meter.data_rate = (bitrate_value(self.combo_data_bitrate[bus_num].currentText())
+                                   if is_fd else None)
+            except ValueError:
+                meter.nominal, meter.data_rate = 500_000, None
+            meter.reset()
+            self.bus_error_counters[bus_num] = None
+            self._lost_polls[bus_num] = 0
 
             self.rx_threads[bus_num] = CANReceiverThread(self.buses[bus_num], self.db_messages[bus_num])
+            self.rx_threads[bus_num].bus_num = bus_num
+            self.rx_threads[bus_num].gateway = self.gateway
             self.rx_threads[bus_num].error_signal.connect(lambda err, b=bus_num, generation=self._bus_generation[bus_num]: self.handle_rx_error(err, b) if generation == self._bus_generation[b] else None)
             self.rx_threads[bus_num].raw_msg_signal.connect(
                 lambda ts, cid, data, ext, err, fd, is_rx, brs, b=bus_num, generation=self._bus_generation[bus_num]: self.route_raw_msg_to_record(ts, cid, data, ext, err, fd, is_rx, b, brs) if generation == self._bus_generation[b] else None
@@ -1114,6 +1284,7 @@ class UniversalCANMonitor(QMainWindow):
             self.combo_fd_iso[bus_num].setEnabled(False)
             self.combo_data_bitrate[bus_num].setEnabled(False)
             self.btn_record.setEnabled(True)
+            self._update_trigger_bitrates()
 
             if hasattr(self, 'tx_panel'):
                 self.tx_panel.update_all_action_buttons()
@@ -1139,14 +1310,21 @@ class UniversalCANMonitor(QMainWindow):
             self.stop_bus_activity(b)
             if self.rx_threads[b]:
                 self.rx_threads[b].stop()
+                # Signals the thread emitted just before stopping may still be queued.
+                # Keep the stopped QThread alive for a while so they are delivered
+                # before the sender object is destroyed.
+                self._retired_rx_threads.append(self.rx_threads[b])
                 self.rx_threads[b] = None
                 
             if self.buses[b] is not None:
                 try:
                     self.buses[b].shutdown()
                 except Exception as exc:
-                    self.log_bus_event(b, f'연결 해제 오류: {exc}', 'ERROR', diagnostic_details('CAN 종료'))
-                    self.notify_connection_error('CAN 종료 오류', f'BUS {b}: {exc}')
+                    # Logged only (no dialog). After a device error/removal the driver often
+                    # cannot close cleanly; keep the original error as the BUS State.
+                    after_error = self.bus_issues.get(b, ('', ''))[1] == 'ERROR'
+                    self.log_bus_event(b, f'연결 해제 오류: {exc}', 'WARN' if after_error else 'ERROR',
+                                       diagnostic_details('CAN 종료'), issue=not after_error)
                 finally:
                     self.buses[b] = None
                     self.bus_capabilities[b]['is_fd'] = False
@@ -1166,6 +1344,7 @@ class UniversalCANMonitor(QMainWindow):
                 self.bus_issues.pop(b, None)
             self._graph_pending_frames = {key: value for key, value in self._graph_pending_frames.items() if key[0] != b}
             self._panel_pending_frames = {key: value for key, value in self._panel_pending_frames.items() if key[0] != b}
+            self.timeout_monitor.forget(b)
             if not already_busy:
                 self._bus_busy.discard(b)
             self.log_bus_event(b, '연결 해제')
@@ -1175,6 +1354,9 @@ class UniversalCANMonitor(QMainWindow):
         if not any(self.rx_threads.values()):
             self.ui_update_timer.stop()
             self.btn_record.setEnabled(False)
+            # No more frames will arrive: save a running trigger capture now.
+            self.trigger.flush()
+        self._update_trigger_bitrates()
             
         if hasattr(self, 'tx_panel'):
             self.tx_panel.update_all_action_buttons()
@@ -1204,10 +1386,10 @@ class UniversalCANMonitor(QMainWindow):
             '오류 후 처리': '해당 BUS 송수신 중지 및 연결 해제',
         }
         details += '\n오류 처리 직전 상태:\n' + '\n'.join(f'{k}: {v}' for k, v in context.items())
+        # No dialog: the State column shows the error and '…' opens the BUS log with details.
         self.log_bus_event(bus_num, f'오류로 연결 해제: {err_msg}', 'ERROR', details)
         self.close_can(bus_num)
-        show_error(self.user_panel_window or self, f"CAN Rx Error (Bus {bus_num})",
-                   err_msg, details=details)
+        self.statusBar().showMessage(f"Bus {bus_num}: 오류로 연결 해제 (상세 내용은 State의 … 버튼)", 8000)
    
     def load_database_file(self, bus_num):
         """DBC 또는 SYM 파일 로드 후 파싱하여 트리 구조 생성"""
@@ -1580,6 +1762,10 @@ class UniversalCANMonitor(QMainWindow):
             
             key = (bus_num, can_id, sig.name)
             self.signal_tree_items[key] = sig_item
+            sig_item.setData(0, SIGNAL_KEY_ROLE, key)
+            if self._trigger_key() == key:
+                self._trigger_item = None
+                self.refresh_trigger_cell()
             self.signal_display_decimals[key] = _signal_display_decimals(sig)
             
             # Enum 정보 저장
@@ -1602,7 +1788,7 @@ class UniversalCANMonitor(QMainWindow):
 
     def open_log_viewer(self):
         """로컬 TRC 로그 파일을 열어 새 뷰어 창을 생성"""
-        file_paths, _ = QFileDialog.getOpenFileNames(self, "Open CAN Log Files", "", "CAN Log Files (*.trc *.txt *.TXT);;TRC Files (*.trc);;CL2000 Logs (*.txt *.TXT)")
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "Open CAN Log Files", "", "CAN Log Files (*.trc *.txt *.TXT *.asc *.blf);;TRC Files (*.trc);;Vector ASC (*.asc);;Vector BLF (*.blf);;CL2000 Logs (*.txt *.TXT)")
         for file_path in file_paths:
             viewer = LogViewerWindow(file_path, self.db_messages, main_window=self)
             self.log_viewers.append(viewer)
@@ -1641,6 +1827,8 @@ class UniversalCANMonitor(QMainWindow):
                         for i in range(self.tree.columnCount()):
                             item.setBackground(i, color)
                         
+                        self._show_timeout(item, self.timeout_monitor.timed_out.get((bus_num, can_id)))
+
                         hex_str = " ".join(f"{b:02X}" for b in stats["data"])
                         msg_type = "FD" if stats.get("is_fd") else "CAN"
                         item.setText(1, msg_type)
@@ -1695,6 +1883,11 @@ class UniversalCANMonitor(QMainWindow):
                 pass
 
         self.flush_panel_messages()
+        now = time.time()
+        self.trigger.poll(now)
+        if now - self._last_timeout_check >= 0.25:
+            self._last_timeout_check = now
+            self.check_receive_timeouts(now)
 
     def reset_tree_values(self, bus_num):
         """채널 재연결 시 기존 트리 데이터 및 UI 초기화"""
@@ -1720,6 +1913,174 @@ class UniversalCANMonitor(QMainWindow):
         if self.rx_threads[bus_num]:
             self.rx_threads[bus_num].latest_data.clear()
             self.rx_threads[bus_num].latest_msg_stats.clear()
+            self.rx_threads[bus_num].signal_stats.clear()
+        self.timeout_monitor.forget(bus_num)
+        if self._trigger_item is not None and self._trigger_item not in self.signal_tree_items.values():
+            self._trigger_item = None
+
+    # ------------------------------------------------------------------
+    # 수신 타임아웃 알림 / 신호 통계
+    # ------------------------------------------------------------------
+    def check_receive_timeouts(self, now):
+        entries = []
+        for bus, thread in self.rx_threads.items():
+            if thread is None:
+                continue
+            for can_id, stats in list(thread.latest_msg_stats.items()):
+                message = self.db_messages[bus].get(can_id)
+                entries.append((bus, can_id, stats, getattr(message, 'cycle_time', None)))
+        new, recovered = self.timeout_monitor.check(now, entries)
+        for bus, can_id, elapsed, limit in new:
+            name = self._message_label(bus, can_id)
+            self.log_bus_event(bus, f'수신 타임아웃: {name}', 'WARN',
+                               f'{elapsed:.0f} ms 동안 수신 없음 (기준 {limit:.0f} ms). 알림 전용이며 송수신은 계속됩니다.',
+                               issue=False)
+            self.statusBar().showMessage(f'BUS {bus} 수신 타임아웃: {name}', 5000)
+        for bus, can_id in recovered:
+            self.log_bus_event(bus, f'수신 재개: {self._message_label(bus, can_id)}', 'INFO', issue=False)
+
+    def _message_label(self, bus, can_id):
+        message = self.db_messages[bus].get(can_id)
+        id_text = f'0x{can_id:03X}' if can_id <= 0x7FF else f'0x{can_id:X}'
+        return f'{id_text} {message.name}' if message is not None else id_text
+
+    def _show_timeout(self, item, state):
+        flagged = item.data(0, TIMEOUT_ROLE)
+        if state:
+            if not flagged:
+                brush = QBrush(QColor('#b3261e'))
+                for column in (3, 7):
+                    item.setForeground(column, brush)
+                item.setData(0, TIMEOUT_ROLE, True)
+            item.setToolTip(3, f'수신 타임아웃: {state[0]:.0f} ms 동안 수신 없음 (기준 {state[1]:.0f} ms)')
+        elif flagged:
+            for column in (3, 7):
+                item.setForeground(column, QBrush())
+            item.setToolTip(3, '')
+            item.setData(0, TIMEOUT_ROLE, False)
+
+    def set_timeout_settings(self, settings):
+        self.timeout_monitor.configure(settings)
+        self.session.autosave()
+
+    def open_signal_stats(self):
+        self._stats_dialog = self._show_tool_dialog(self._stats_dialog, lambda: SignalStatsDialog(self, self))
+
+    def _show_tool_dialog(self, dialog, factory):
+        try:
+            if dialog is not None and dialog.isVisible():
+                dialog.raise_()
+                dialog.activateWindow()
+                return dialog
+        except RuntimeError:
+            pass
+        dialog = factory()
+        dialog.show()
+        return dialog
+
+    # ------------------------------------------------------------------
+    # BUS 게이트웨이
+    # ------------------------------------------------------------------
+    def open_gateway(self):
+        self._gateway_dialog = self._show_tool_dialog(self._gateway_dialog, lambda: GatewayDialog(self, self))
+
+    def set_gateway(self, rules, enabled):
+        """Validate and apply gateway rules; raises ValueError for invalid rules."""
+        was_enabled = self.gateway.enabled
+        self.gateway.configure(rules, enabled)
+        if enabled != was_enabled:
+            self.statusBar().showMessage('BUS 게이트웨이 ' + ('사용' if enabled else '중지'), 5000)
+        self.btn_gateway.setText('GW ON' if enabled else 'GW')
+        self.session.autosave()
+
+    def _on_gateway_forwarded(self, bus, can_id, data, is_ext, is_fd, timestamp):
+        if self.buses.get(bus) is not None:
+            self.record_tx_activity(bus, can_id, data, is_fd, timestamp, is_ext)
+
+    def _on_gateway_failed(self, row, bus, error):
+        self.log_bus_event(bus, f'게이트웨이 {row}행 전달 실패: {error}', 'WARN', issue=False)
+
+    # ------------------------------------------------------------------
+    # 트리거 기록
+    # ------------------------------------------------------------------
+    def _trigger_key(self):
+        config = self.trigger.config
+        return (config.bus, config.can_id, config.signal) if config is not None else None
+
+    def _update_trigger_bitrates(self):
+        self.trigger.bitrates = {b: self.combo_bitrate[b].currentText() for b in BUS_IDS if self.buses[b]}
+
+    def refresh_trigger_cell(self):
+        key = self._trigger_key()
+        item = self.signal_tree_items.get(key) if key else None
+        old = self._trigger_item
+        if old is not None and old is not item:
+            try:
+                old.setText(TRIGGER_COLUMN, '')
+                old.setToolTip(TRIGGER_COLUMN, '')
+            except RuntimeError:
+                pass
+        self._trigger_item = item
+        if old is not None and old is not item:
+            try:
+                old.setIcon(TRIGGER_COLUMN, QIcon())
+            except RuntimeError:
+                pass
+        if item is not None:
+            item.setText(TRIGGER_COLUMN, self.trigger.status_text())
+            item.setIcon(TRIGGER_COLUMN, button_icon('trigger'))
+            config = self.trigger.config
+            item.setToolTip(TRIGGER_COLUMN, f'트리거: {config.describe()} · 앞 {config.pre_s:g}초 / 뒤 {config.post_s:g}초\n'
+                                            f'발생 {self.trigger.fired}회 · 저장 {self.trigger.saved_files}건')
+
+    def on_tree_double_clicked(self, item, column):
+        if column == TRIGGER_COLUMN and item.data(0, SIGNAL_KEY_ROLE):
+            self.edit_trigger(item)
+
+    def show_tree_menu(self, pos):
+        item = self.tree.itemAt(pos)
+        key = item.data(0, SIGNAL_KEY_ROLE) if item is not None else None
+        menu = QMenu(self)
+        if key:
+            menu.addAction(button_icon('trigger'), f'트리거 설정… ({key[2]})', lambda: self.edit_trigger(item))
+        if self.trigger.config is not None:
+            menu.addAction('트리거 해제', self.clear_trigger)
+        if not menu.isEmpty():
+            menu.exec_(self.tree.viewport().mapToGlobal(pos))
+
+    def edit_trigger(self, item):
+        bus, can_id, signal = item.data(0, SIGNAL_KEY_ROLE)
+        message = self.db_messages[bus].get(can_id)
+        if message is None:
+            return
+        current = self.trigger.config
+        if current is not None and self._trigger_key() != (bus, can_id, signal):
+            answer = QMessageBox.question(
+                self, '트리거 설정', f'트리거는 1개만 등록할 수 있습니다.\n기존 트리거({current.describe()})를 대체할까요?')
+            if answer != QMessageBox.Yes:
+                return
+            current = None
+        dialog = TriggerDialog(bus, can_id, message.name, signal, current, self)
+        if dialog.exec_() == dialog.Accepted and dialog.result_config is not None:
+            self._update_trigger_bitrates()
+            self.trigger.set_config(dialog.result_config)
+            self.statusBar().showMessage(f'트리거 등록: {dialog.result_config.describe()}', 5000)
+            self.session.autosave()
+
+    def clear_trigger(self):
+        self.trigger.clear()
+        self.statusBar().showMessage('트리거 해제', 3000)
+        self.session.autosave()
+
+    def _on_trigger_saved(self, path, count):
+        bus = self.trigger.config.bus if self.trigger.config is not None else BUS_IDS[0]
+        self.log_bus_event(bus, f'트리거 기록 저장: {os.path.basename(path)} ({count:,} 프레임)', 'INFO', path, issue=False)
+        self.statusBar().showMessage(f'트리거 기록 저장: {path}', 8000)
+
+    def _on_trigger_failed(self, error):
+        bus = self.trigger.config.bus if self.trigger.config is not None else BUS_IDS[0]
+        self.log_bus_event(bus, f'트리거 기록 저장 실패: {error}', 'ERROR', issue=False)
+        self.statusBar().showMessage(f'트리거 기록 저장 실패: {error}', 8000)
 
     def closeEvent(self, event):
         """프로그램 종료 시 포트 안전 종료"""
@@ -1732,6 +2093,7 @@ class UniversalCANMonitor(QMainWindow):
         except RuntimeError:
             self.record_window = None
         self.session.autosave()
+        self.trigger.flush()
         self.session.timer.stop()
         self.bus_status_timer.stop()
         self.panel_update_timer.stop()

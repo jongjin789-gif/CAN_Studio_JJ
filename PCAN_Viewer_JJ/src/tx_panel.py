@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt, QTimer, QEvent
 from PyQt5.QtGui import QFont, QKeySequence
 from src.utils import SortableTreeWidgetItem
+from src.spin_input import spin_with_hint
 
 class TxPacketDialog(QDialog):
     """송신 패킷을 생성하는 다이얼로그 창"""
@@ -248,8 +249,10 @@ class TxPacketDialog(QDialog):
         self.edit_cycle = QSpinBox()
         self.edit_cycle.setRange(0, 600000)
         self.edit_cycle.setValue(0)
-        self.edit_cycle.setSuffix(" ms (0=one-shot)")
-        form_layout.addRow("Cycle Time:", self.edit_cycle)
+        # Only the number is editable; the unit and meaning are shown beside it.
+        self.cycle_field = spin_with_hint(self.edit_cycle, "ms   (0 = 1회 송신)",
+                                          "송신 주기(ms). 0이면 Send를 누를 때 한 번만 송신합니다.")
+        form_layout.addRow("Cycle Time:", self.cycle_field)
         
         # 7. Note
         self.edit_note = QLineEdit()
@@ -971,9 +974,9 @@ class TxPanel(QWidget):
         except queue.Full:
             self._periodic_dropped_records += 1
 
-    def _tx_warning(self, bus, message):
+    def _tx_warning(self, bus, message, issue=True):
         if bus is not None and hasattr(self.main_window, 'log_bus_event'):
-            self.main_window.log_bus_event(bus, message, 'WARN')
+            self.main_window.log_bus_event(bus, message, 'WARN', issue=issue)
         elif hasattr(self.main_window, 'panel_system_event'):
             self.main_window.panel_system_event(message, 'WARN')
 
@@ -995,7 +998,7 @@ class TxPanel(QWidget):
             if missed > task.reported_missed:
                 self._tx_warning(p['bus'], f"TX 주기 지연: 0x{p['id']:X}, "
                                  f'누락 {missed - task.reported_missed}회 (누적 {missed}), '
-                                 f'최대 지연 {lateness:.1f} ms')
+                                 f'최대 지연 {lateness:.1f} ms', issue=False)
                 task.reported_missed = missed
             if hasattr(self.main_window, 'record_tx_activity'):
                 self.main_window.record_tx_activity(p['bus'], p['id'], payload, p['is_fd'], timestamp,
@@ -1399,7 +1402,7 @@ class TxPanel(QWidget):
         lines = [
             ";$FORMATVERSION=5.1",
             f"; {file_path}",
-            "; CAN messages saved by Universal CAN Monitor",
+            "; CAN messages saved by CAN Studio JJ",
             ";", "; Columns descriptions:", "; ~~~~~~~~~~~~~~~~~~~~~",
             ";+Bus", ";|  +Message ID", ";|  |         +Reserved",
             ";|  |         |  +Cycle time in ms (0=manual)",
@@ -1555,7 +1558,8 @@ class TxPanel(QWidget):
             base_dir = os.path.dirname(sys.executable)
         else:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.join(base_dir, "PCAN_Viewer_JJ.pk")
+        from src.app_info import pk_path
+        return pk_path(base_dir)
 
     def auto_save_packets(self):
         session = getattr(self.main_window, 'session', None)

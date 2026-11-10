@@ -40,7 +40,8 @@ def get_launch_options():
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         
-    pk_path = os.path.join(base_dir, "PCAN_Viewer_JJ.pk")
+    from src.app_info import pk_path as resolve_pk_path
+    pk_path = resolve_pk_path(base_dir)
     options = {'viewer_mode_only': False, 'user_panel_only': False}
     
     if os.path.exists(pk_path):

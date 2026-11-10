@@ -3,7 +3,9 @@ import can
 
 from src.PCANBasic import (PCANBasic, PCAN_NONEBUS, PCAN_ATTACHED_CHANNELS, PCAN_ERROR_OK,
                            PCAN_CHANNEL_AVAILABLE, FEATURE_FD_CAPABLE, PCAN_ERROR_BUSOFF,
-                           PCAN_ERROR_BUSLIGHT, PCAN_ERROR_BUSHEAVY, PCAN_ERROR_BUSPASSIVE)
+                           PCAN_ERROR_BUSLIGHT, PCAN_ERROR_BUSHEAVY, PCAN_ERROR_BUSPASSIVE,
+                           PCAN_ERROR_ILLHANDLE, PCAN_ERROR_NODRIVER, PCAN_ERROR_INITIALIZE,
+                           PCAN_ERROR_ILLOPERATION)
 from .device_base import CanDeviceBackend
 
 
@@ -27,6 +29,13 @@ _DATA = (
     ("8 MBit/s", {'data_brp': 2, 'data_tseg1': 3, 'data_tseg2': 1, 'data_sjw': 1}),
 )
 PCAN_F_CLOCK_MHZ = 80
+# Status bits meaning the hardware/handle is gone (e.g. USB unplugged), not a bus error.
+def _int(value):
+    return int(getattr(value, 'value', value))
+
+
+_DEVICE_LOST = (_int(PCAN_ERROR_ILLHANDLE) | _int(PCAN_ERROR_NODRIVER)
+                | _int(PCAN_ERROR_INITIALIZE) | _int(PCAN_ERROR_ILLOPERATION))
 
 
 class PcanBackend(CanDeviceBackend):
@@ -86,6 +95,12 @@ class PcanBackend(CanDeviceBackend):
         status = status_fn()
         status = int(getattr(status, 'value', status))
         detail = f'PCAN status: 0x{status:X}'
+        # python-can keeps reporting an empty receive queue after the USB device is
+        # removed, so detect the removal here.
+        if status & _DEVICE_LOST:
+            return ('lost', detail)
+        if self._channel_unavailable(bus):
+            return ('lost', detail + ', channel condition: unavailable')
         if status & PCAN_ERROR_BUSOFF:
             return ('busoff', detail)
         if status & (PCAN_ERROR_BUSLIGHT | PCAN_ERROR_BUSHEAVY | PCAN_ERROR_BUSPASSIVE):
@@ -93,3 +108,18 @@ class PcanBackend(CanDeviceBackend):
         if status == PCAN_ERROR_OK:
             return ('ok', detail)
         return None
+
+    @staticmethod
+    def _channel_unavailable(bus):
+        api, handle = getattr(bus, 'm_objPCANBasic', None), getattr(bus, 'm_PcanHandle', None)
+        if api is None or handle is None:
+            return False
+        try:
+            from can.interfaces.pcan import basic   # same API object python-can opened
+            result, condition = api.GetValue(handle, basic.PCAN_CHANNEL_CONDITION)
+        except Exception:
+            return False
+        result = int(getattr(result, 'value', result))
+        condition = int(getattr(condition, 'value', condition))
+        return result == 0 and condition == int(getattr(basic.PCAN_CHANNEL_UNAVAILABLE, 'value',
+                                                            basic.PCAN_CHANNEL_UNAVAILABLE))

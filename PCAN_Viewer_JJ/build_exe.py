@@ -8,6 +8,9 @@ import shutil
 import stat
 import time
 
+from src.app_info import (APP_FILE_PREFIX, VIEWER_FILE_PREFIX, PK_FILE_NAME,
+                          pk_path as resolve_pk_path)
+
 try:
     from PyInstaller.utils.hooks import collect_submodules
 except ImportError:
@@ -111,9 +114,9 @@ def build_executable():
     target_script = os.path.join(current_dir, 'main.py')
     icon_path = os.path.join(current_dir, 'icon', 'viewer.ico')
     
-    # PCAN_Viewer_JJ.pk에서 뷰어 모드 여부 파악
+    # 실행 플래그 파일(.pk)에서 뷰어 모드 여부 파악 (옛 PCAN_Viewer_JJ.pk도 읽음)
     is_viewer_mode = False
-    pk_path = os.path.join(current_dir, "PCAN_Viewer_JJ.pk")
+    pk_path = resolve_pk_path(current_dir)
     if os.path.exists(pk_path):
         try:
             with open(pk_path, 'r', encoding='utf-8') as f:
@@ -123,7 +126,7 @@ def build_executable():
         except Exception:
             pass
                 
-    app_prefix = "PCAN_Log_Viewer_JJ" if is_viewer_mode else "PCAN_Viewer_JJ"
+    app_prefix = VIEWER_FILE_PREFIX if is_viewer_mode else APP_FILE_PREFIX
     
     icon_dir = os.path.join(current_dir, 'icon')
     current_os = platform.system()
@@ -214,13 +217,13 @@ def build_executable():
     
     # 배포 모드(viewer_mode_only/user_panel_only) 전환용 설정 파일을 exe 옆에 배치
     # (세션 매니저가 있으면 앱이 자동 생성하지 않으므로 빌드 시 직접 복사/생성한다)
-    dist_pk_path = os.path.join(dist_path, 'PCAN_Viewer_JJ.pk')
+    dist_pk_path = os.path.join(dist_path, PK_FILE_NAME)
     if os.path.exists(pk_path):
         shutil.copy2(pk_path, dist_pk_path)
     else:
         with open(dist_pk_path, 'w', encoding='utf-8') as f:
             json.dump({"viewer_mode_only": False, "user_panel_only": False}, f, indent=4)
-    print(f"[안내] PCAN_Viewer_JJ.pk 파일이 배포 폴더에 생성되었습니다.")
+    print(f"[안내] {PK_FILE_NAME} 파일이 배포 폴더에 생성되었습니다.")
 
     # 배포 파일과 함께 최신 사용법 및 변경 내역 제공
     for document in ('MANUAL.md', 'USER_PANEL_SEQUENCE.md', 'USER_PANEL_RELEASE_NOTES.md'):
@@ -294,6 +297,10 @@ chmod +x {app_prefix}_{APP_VERSION}_linux
 - CAN 방식(PCAN/Kvaser)을 BUS별로 선택합니다. 서로 다른 BUS에서 PCAN과 Kvaser를 함께 사용할 수 있습니다.
 - Kvaser 채널은 S/N과 장치 내부 채널 번호(#)로 구분하며, Refresh로 새로 연결한 장치를 다시 검색합니다.
 - 가상 채널([Virtual])만 보이면 드라이버 설치 후 재부팅 여부와 장치 관리자의 Kvaser 장치 인식 상태를 확인하세요.
+- State 칸: 버스 부하율·fps·오류 프레임 수. Log View: Vector ASC/BLF 열기, CSV 내보내기.
+- 수신부 Trigger 열(더블클릭): 신호 조건 트리거 시 앞뒤 1~2초를 Log 폴더에 TRC로 저장합니다.
+- Record 창 ID 필터: 범위 제외 / 범위만 기록 (예: 100-1FF, 321).
+- GW: BUS 간 게이트웨이(시작 시 항상 꺼짐). Stats: 신호 통계와 수신 타임아웃 알림(알림 전용).
 - User Panel: Add TX Tool → sequence → 명령 시퀀스 설정에서 CMD/RCV/DEL을 등록합니다.
 - DBC 없이 CMD 데이터와 RCV 비트 조건을 수정·실행하며, 패널 Save에 함께 저장됩니다.
 - sequence Force/Packet Control은 각 sequence 도구에서 실행하며, 전역 Force RUN 모드는 없습니다.
@@ -308,7 +315,7 @@ chmod +x {app_prefix}_{APP_VERSION}_linux
         with open(readme_path, 'w', encoding='utf-8') as f:
             f.write(readme_content)
 
-    print(f"=== 빌드가 완료되었습니다! 'dist/PCAN_Viewer_JJ_{APP_VERSION}{os_suffix}' 폴더를 확인해주세요. ===")
+    print(f"=== 빌드가 완료되었습니다! 'dist/{app_prefix}_{APP_VERSION}{os_suffix}' 폴더를 확인해주세요. ===")
 
 if __name__ == '__main__':
     build_executable()

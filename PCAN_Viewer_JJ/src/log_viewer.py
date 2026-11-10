@@ -14,6 +14,8 @@ from src.graph_lifecycle import close_graph_windows
 from src.button_icons import decorate_button
 from src.bus_config import BUS_IDS
 from src.tx_schedule import bus_schedule
+from src.can_log_formats import is_vector_log, write_vector_log
+from src.csv_export import export_signals_csv
 
 
 class LogViewerWindow(QMainWindow):
@@ -102,6 +104,12 @@ class LogViewerWindow(QMainWindow):
         dbc_btn_layout.addWidget(self.search_input)
         
         dbc_btn_layout.addStretch()
+        self.btn_export_csv = QPushButton("CSV Export")
+        decorate_button(self.btn_export_csv, 'csv',
+                        '디코딩한 신호 값을 시간축 CSV 표로 저장합니다.\n'
+                        '체크한 신호만 저장하며, 체크가 없으면 모든 신호를 저장합니다.', 'CSV')
+        self.btn_export_csv.clicked.connect(self.export_csv)
+        dbc_btn_layout.addWidget(self.btn_export_csv)
         self.btn_close_graphs = QPushButton("Close Graphs")
         decorate_button(self.btn_close_graphs, 'graph_close', '이 로그뷰에서 연 모든 그래프를 닫습니다.')
         self.btn_close_graphs.clicked.connect(self.close_graphs)
@@ -531,7 +539,12 @@ class LogViewerWindow(QMainWindow):
             QMessageBox.information(self, "Save", "저장할 필터 결과가 없습니다.")
             return
         stem, ext = os.path.splitext(self.file_path)
-        path, _ = QFileDialog.getSaveFileName(self, "Save filtered log", stem + "_filtered" + ext, "CAN log (*.trc *.txt);;All files (*)")
+        if is_vector_log(self.file_path):
+            # ASC/BLF are rewritten from the parsed frames, in the same format.
+            pattern = f"Vector {ext[1:].upper()} (*{ext.lower()})"
+        else:
+            pattern = "CAN log (*.trc *.txt);;All files (*)"
+        path, _ = QFileDialog.getSaveFileName(self, "Save filtered log", stem + "_filtered" + ext, pattern)
         if not path:
             return
         if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(self.file_path)):
@@ -545,6 +558,10 @@ class LogViewerWindow(QMainWindow):
 
     def export_filtered_log(self, path, logs=None):
         logs = self.get_visible_log_data() if logs is None else logs
+        if logs and logs[0].get('format') in ('asc', 'blf'):
+            if os.path.splitext(path)[1].lower() != '.' + logs[0]['format']:
+                path += '.' + logs[0]['format']
+            return write_vector_log(path, logs)
         selected = {entry['source_line'] for entry in logs}
         is_logger = bool(logs and logs[0].get('format') == 'cl2000')
         # Copy original bytes, including header, timestamps, flags and line endings.
@@ -907,6 +924,50 @@ class LogViewerWindow(QMainWindow):
                     msg_item.setExpanded(True)
             else:
                 msg_item.setHidden(True)
+
+    def csv_series(self):
+        """Checked signals (all signals when none is checked) as CSV columns."""
+        checked, every = [], []
+        for i in range(self.tree.topLevelItemCount()):
+            msg_item = self.tree.topLevelItem(i)
+            for j in range(msg_item.childCount()):
+                sig_item = msg_item.child(j)
+                bus_num, can_id = sig_item.data(0, Qt.UserRole + 1)
+                sig_name = sig_item.text(0)
+                times, values = self.signal_data.get((bus_num, can_id), {}).get(sig_name, ([], []))
+                if not times:
+                    continue
+                db_msg = self.db_messages[bus_num][can_id]
+                unit = db_msg.get_signal_by_name(sig_name).unit or ''
+                name = f"B{bus_num} {db_msg.name}.{sig_name}" + (f" [{unit}]" if unit else '')
+                every.append((name, times, values))
+                if sig_item.checkState(0) == Qt.Checked:
+                    checked.append((name, times, values))
+        return checked or every
+
+    def export_csv(self):
+        series = self.csv_series()
+        if not series:
+            QMessageBox.information(self, "CSV Export", "저장할 DBC 신호가 없습니다. DBC 등록 후 로그를 다시 열어주세요.")
+            return
+        stem = os.path.splitext(self.file_path)[0]
+        sample_only = "CSV - 샘플 시점 값만 (*.csv)"
+        filled = "CSV - 직전 값 채움 (*.csv)"
+        path, selected = QFileDialog.getSaveFileName(self, "CSV Export", stem + "_signals.csv",
+                                                     f"{sample_only};;{filled}")
+        if not path:
+            return
+        if not path.lower().endswith('.csv'):
+            path += '.csv'
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                rows = export_signals_csv(path, series, fill_forward=selected == filled)
+            finally:
+                QApplication.restoreOverrideCursor()
+            QMessageBox.information(self, "CSV Export", f"신호 {len(series)}개, {rows:,}행을 저장했습니다.\n{path}")
+        except Exception as exc:
+            show_error(self, "CSV Export", str(exc))
 
     def open_graph(self):
         plot_data = {}

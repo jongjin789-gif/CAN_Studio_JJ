@@ -193,7 +193,10 @@ class RegisteredPacketDialog(TxPacketDialog):
         self.setWindowTitle('유저 패널 TX 패킷 등록')
         self.edit_cycle.setRange(-1, 600000)
         self.edit_cycle.setSpecialValueText('딜레이 입력 필요')
-        self.edit_cycle.setSuffix(' ms (0=도구 값 변경 시 전송)')
+        self.cycle_field.hint.setText('ms   (0 = 도구 값 변경 시 전송)')
+        tip = '주기 전송 간격(ms). 0이면 도구 값을 바꿀 때만 전송합니다. 입력 전에는 「딜레이 입력 필요」로 표시됩니다.'
+        self.edit_cycle.setToolTip(tip)
+        self.cycle_field.hint.setToolTip(tip)
         self.edit_cycle.setValue(-1)
         if packet:
             self.set_packet_data(packet)

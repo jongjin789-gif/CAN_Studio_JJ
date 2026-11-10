@@ -1,5 +1,6 @@
 import re
 from src.error_dialog import diagnostic_details
+from src.can_log_formats import is_vector_log, read_vector_entries
 from PyQt5.QtCore import QThread, pyqtSignal
 import datetime
 import os
@@ -22,6 +23,15 @@ class CANReceiverThread(QThread):
         self.latest_data = {}  # {(can_id, signal_name): (value, unit, timestamp)}
         self.latest_rx_data = {}  # {can_id: (raw_payload, timestamp)}; excludes local Tx echoes
         self.latest_msg_stats = {}  # {can_id: {"count": 0, "cycle": 0.0, "last_time": None, "data": b""}}
+        # RX signal statistics: {(can_id, signal_name): [min, max, sum, count]}
+        self.signal_stats = {}
+        # Error frames are only counted (a missing ACK can produce thousands per second;
+        # sending each one to the GUI thread would load the whole program).
+        self.error_frames = 0
+        self.last_error_frame = None   # (arbitration_id, data) of the latest error frame
+        # Optional BUS-to-BUS forwarding hook (src/gateway.py), called on this thread.
+        self.gateway = None
+        self.bus_num = None
         
         # 타임스탬프 정규화를 위한 변수
         self._is_first_msg = True
@@ -36,6 +46,13 @@ class CANReceiverThread(QThread):
                 msg = self.bus.recv(timeout=0.1)
                 if msg is None:
                     continue
+                if msg.is_error_frame:
+                    self.error_frames += 1
+                    self.last_error_frame = (int(msg.arbitration_id), bytes(msg.data))
+                    continue
+                gateway = self.gateway
+                if gateway is not None and msg.is_rx and not msg.is_error_frame:
+                    gateway.forward(self.bus_num, msg)
                 
                 # --- 타임스탬프 정규화 (Timestamp Normalization) ---
                 # 일부 시스템(예: Windows PCAN)에서 드라이버가 제공하는 타임스탬프는 Unix Epoch가 아닌
@@ -90,6 +107,17 @@ class CANReceiverThread(QThread):
                             signal_def = db_msg.get_signal_by_name(sig_name)
                             unit = signal_def.unit if signal_def.unit else ""
                             self.latest_data[(can_id, sig_name)] = (sig_val, unit, now)
+                            if msg.is_rx and isinstance(sig_val, (int, float)):
+                                stat = self.signal_stats.get((can_id, sig_name))
+                                if stat is None:
+                                    self.signal_stats[(can_id, sig_name)] = [sig_val, sig_val, sig_val, 1]
+                                else:
+                                    if sig_val < stat[0]:
+                                        stat[0] = sig_val
+                                    if sig_val > stat[1]:
+                                        stat[1] = sig_val
+                                    stat[2] += sig_val
+                                    stat[3] += 1
                     except Exception as e:
                         pass # 데이터 길이 오류 등 예외 처리
             except Exception as e:
@@ -143,10 +171,52 @@ class LogParserThread(QThread):
         data = bytes.fromhex(''.join(tokens[:length]))
         return length, data
 
+    def _decode_entry(self, signal_data, found_msgs, bus_num, can_id, data, ts):
+        if bus_num in self.db_messages and can_id in self.db_messages[bus_num]:
+            found_msgs.add((bus_num, can_id))
+            db_msg = self.db_messages[bus_num][can_id]
+            try:
+                decoded = db_msg.decode(data, decode_choices=False)
+            except Exception:
+                return
+            key = (bus_num, can_id)
+            series = signal_data.setdefault(key, {})
+            for sig_name, val in decoded.items():
+                if not isinstance(val, (int, float)):
+                    continue
+                times, values = series.setdefault(sig_name, ([], []))
+                times.append(ts)
+                values.append(float(val))
+
+    def _run_vector(self):
+        """Vector ASC/BLF via python-can; entries match the TRC parser output."""
+        signal_data, found_msgs = {}, set()
+        self.progress_signal.emit(5)
+        entries = read_vector_entries(self.file_path, cancelled=lambda: self._is_cancelled)
+        if entries is None or self._is_cancelled:
+            return
+        total = max(1, len(entries))
+        for i, entry in enumerate(entries, 1):
+            if self._is_cancelled:
+                return
+            if i % 2000 == 0:
+                self.progress_signal.emit(5 + int(i * 95 / total))
+            self._decode_entry(signal_data, found_msgs, entry['bus'], entry['can_id'],
+                               entry['data'], entry['timestamp'])
+        self.progress_signal.emit(100)
+        self.finished_signal.emit(signal_data, found_msgs, entries)
+
     def run(self):
         signal_data = {} # {(bus_num, can_id): {signal_name: (times[], values[])}}
         found_msgs = set()
         raw_log_lines = []
+        if is_vector_log(self.file_path):
+            try:
+                self._run_vector()
+            except Exception as e:
+                self.last_error_details = diagnostic_details("로그 파일 파싱 / LogParserThread._run_vector")
+                self.error_signal.emit(str(e))
+            return
         try:
             base_time = 0.0
             fallback_base_time = 0.0
@@ -312,19 +382,7 @@ class LogParserThread(QThread):
                             log_line_data['is_extended_id'] = logger_extended
                             log_line_data['direction'] = logger_direction
 
-                        if bus_num in self.db_messages and can_id in self.db_messages[bus_num]:
-                            found_msgs.add((bus_num, can_id))
-                            db_msg = self.db_messages[bus_num][can_id]
-                            try:
-                                decoded = db_msg.decode(data, decode_choices=False)
-                                key = (bus_num, can_id)
-                                if key not in signal_data: signal_data[key] = {}
-                                for sig_name, val in decoded.items():
-                                    if not isinstance(val, (int, float)): continue
-                                    if sig_name not in signal_data[key]: signal_data[key][sig_name] = ([], [])
-                                    signal_data[key][sig_name][0].append(ts)
-                                    signal_data[key][sig_name][1].append(float(val))
-                            except Exception: pass
+                        self._decode_entry(signal_data, found_msgs, bus_num, can_id, data, ts)
                     except (ValueError, IndexError):
                         continue
 

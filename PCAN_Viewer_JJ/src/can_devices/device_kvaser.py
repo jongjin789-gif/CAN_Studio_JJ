@@ -18,6 +18,10 @@ log = logging.getLogger(__name__)
 CAP_VIRTUAL = 0x00010000
 CAP_CAN_FD = 0x00080000
 CAP_CAN_FD_NONISO = 0x00100000
+# canReadStatus flags (canstat.h).
+CAN_STAT_ERROR_PASSIVE = 0x00000001
+CAN_STAT_BUS_OFF = 0x00000002
+CAN_STAT_ERROR_WARNING = 0x00000004
 DRIVER_MESSAGE = 'Kvaser Drivers for Windows 설치 후 프로그램을 다시 실행하세요 (canlib32.dll).'
 
 
@@ -136,3 +140,38 @@ class KvaserBackend(CanDeviceBackend):
             # python-can/CANlib have no predefined constants for these rates.
             kwargs.update(tseg1=15, tseg2=4, sjw=4, no_samp=1)
         return can.interface.Bus(**kwargs), is_fd
+
+    # ---- monitoring --------------------------------------------------------
+    @staticmethod
+    def _driver():
+        driver = ctypes.WinDLL('canlib32.dll')
+        driver.canReadStatus.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_ulong)]
+        driver.canReadStatus.restype = ctypes.c_int
+        driver.canRequestChipStatus.argtypes = [ctypes.c_int]
+        driver.canRequestChipStatus.restype = ctypes.c_int
+        return driver
+
+    @staticmethod
+    def _handle(bus):
+        handle = getattr(bus, '_read_handle', None)
+        return getattr(handle, 'value', handle)
+
+    def poll_status(self, bus):
+        """Read the controller state; python-can does not report Kvaser bus-off by itself."""
+        handle = self._handle(bus)
+        if handle is None:
+            return None
+        driver = self._driver()
+        # USB devices report the controller state asynchronously; ask for a fresh one.
+        # The answer arrives shortly, so each 1 s poll reads the previous request's state.
+        driver.canRequestChipStatus(handle)
+        flags = ctypes.c_ulong()
+        if driver.canReadStatus(handle, ctypes.byref(flags)) < 0:
+            return None
+        flags = flags.value
+        detail = f'Kvaser status: 0x{flags:X}'
+        if flags & CAN_STAT_BUS_OFF:
+            return ('busoff', detail)
+        if flags & (CAN_STAT_ERROR_PASSIVE | CAN_STAT_ERROR_WARNING):
+            return ('warn', detail)
+        return ('ok', detail)

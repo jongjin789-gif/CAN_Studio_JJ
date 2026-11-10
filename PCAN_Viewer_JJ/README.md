@@ -1,4 +1,4 @@
-# Universal CAN Monitor (R013)
+# CAN Studio JJ (R013)
 
 아래 실행·빌드 명령은 프로젝트 루트 폴더에서 수행합니다.
 
@@ -7,6 +7,8 @@
 - **CAN 장비 모듈화**: 장비별 연결 코드를 `src/can_devices/`로 분리하고, BUS별로 **CAN 방식**(PCAN / Kvaser / SocketCAN)을 선택하도록 변경했습니다. 서로 다른 BUS에서 PCAN과 Kvaser를 함께 사용할 수 있습니다.
 - **Kvaser 지원 (Windows)**: Kvaser Drivers for Windows(CANlib)로 Classic CAN / CAN FD(ISO·Non-ISO)를 연결합니다. 채널 목록에 장치명·S/N·장치 내부 채널 번호(#)와 `[Virtual]`/`[FD]` 표시를 함께 보여줍니다.
 - **Refresh 재검색**: Refresh 시 Kvaser 하드웨어를 다시 검색하므로 프로그램을 재실행하지 않아도 새로 연결한 장치가 표시됩니다. 채널 번호가 바뀌어도 S/N과 장치 내부 채널 번호로 선택·세션 복원을 유지하고, 구성이 바뀐 채널은 다른 포트를 열지 않도록 연결을 거부합니다.
+- **프로그램 이름 변경**: PCAN 전용에서 범용 CAN 도구가 되어 이름을 **CAN Studio JJ**로 변경했습니다. 실행 파일은 `CAN_Studio_JJ_R013_win.exe`(뷰어 전용 빌드는 `CAN_Studio_Viewer_JJ_…`), 실행 플래그 파일은 `CAN_Studio_JJ.pk`입니다. 실행 파일 옆에 `CAN_Studio_JJ.pk`가 없고 기존 `PCAN_Viewer_JJ.pk`가 있으면 자동으로 복사해 사용하며, 기존 파일은 삭제하지 않습니다. `.pjjsettings`, `.pjjupkg` 등 파일 확장자는 그대로입니다.
+- **진단·분석 도구**: State 칸의 버스 부하율·fps·오류 프레임(Kvaser Bus-Off·경고 감지 포함), Vector ASC/BLF 로그 열기·저장, 수신부 **Trigger** 열의 트리거 기록(앞뒤 1~2초 TRC 저장), **GW** BUS 게이트웨이(전달/차단/ID 변환), **Stats** 신호 통계와 수신 타임아웃 알림, 로그 뷰어 **CSV** 내보내기, **Record ID 필터**(범위 제외 / 범위만 기록)를 추가했습니다. 자세한 사용법은 [사용자 매뉴얼 8장](MANUAL.md#8-진단분석-도구-r013)을 참고하세요.
 - 장치 추가 방법은 `src/can_devices/__init__.py`의 안내를 참고하세요.
 
 ## R009 업데이트
@@ -20,7 +22,7 @@
 
 상세 내용: [사용자 매뉴얼](MANUAL.md), [시퀀스 사용법](USER_PANEL_SEQUENCE.md), [변경 내역](USER_PANEL_RELEASE_NOTES.md).
 
-**Universal CAN Monitor**는 Python 및 PyQt5 기반의 CAN 통신 모니터링 및 분석 도구입니다. Windows PCAN/Kvaser와 Linux SocketCAN 실행 경로를 제공하며, 실제 하드웨어 지원은 OS 드라이버와 장비 환경 확인이 필요합니다. DBC/SYM 실시간 디코딩 및 시계열 그래프를 지원합니다.
+**CAN Studio JJ**(구 PCAN Viewer JJ / Universal CAN Monitor)는 Python 및 PyQt5 기반의 CAN 통신 모니터링 및 분석 도구입니다. Windows PCAN/Kvaser와 Linux SocketCAN 실행 경로를 제공하며, 실제 하드웨어 지원은 OS 드라이버와 장비 환경 확인이 필요합니다. DBC/SYM 실시간 디코딩 및 시계열 그래프를 지원합니다.
 
 ---
 
@@ -35,7 +37,7 @@
 - **실시간 그래프 렌더링**: Reset Zoom은 최근 30초, Auto Y는 현재 보이는 데이터, Fit All Data는 보관된 전체 구간을 표시합니다. 통합 그래프는 X축 범위를 공유합니다.
 - **데이터 로깅 (Record)**: 실시간으로 수신되는 메시지를 `.trc` (Trace) 파일 포맷으로 저장 기능 제공.
 - **TRC 로그 뷰어 (Log Viewer)**: 저장된 `.trc` 로그 파일을 오프라인에서 불러와 DBC/SYM 파일을 기준으로 재해석(Parsing)하여 분석할 수 있는 내장 뷰어 제공.
-- **독립 뷰어 모드 (Log Viewer Mode)**: `PCAN_Viewer_JJ.pk` 설정 파일의 `"viewer_mode_only"` 값을 `true`로 변경하여 하드웨어 연결 및 송신(Tx) 기능이 숨겨진 뷰어 전용 UI로 전환할 수 있습니다. (뷰어 모드 시 기존 패킷/설정 데이터 덮어쓰기 보호)
+- **독립 뷰어 모드 (Log Viewer Mode)**: `CAN_Studio_JJ.pk` 설정 파일의 `"viewer_mode_only"` 값을 `true`로 변경하여 하드웨어 연결 및 송신(Tx) 기능이 숨겨진 뷰어 전용 UI로 전환할 수 있습니다. (뷰어 모드 시 기존 패킷/설정 데이터 덮어쓰기 보호)
 - **타이틀 바 버전 표시**: 실행 파일명과 `build_exe.py`의 `APP_VERSION = "R013"`에서 버전을 확인합니다. 소스 변경은 재빌드해야 실행 파일에 반영됩니다.
 
 ---
@@ -122,8 +124,8 @@ chmod +x install_linux.sh
    python build_exe.py
    ```
 2. 빌드가 성공적으로 완료되면 프로젝트 폴더 내 `dist` 디렉토리 하위에 플랫폼별 배포 폴더가 생성됩니다.
-   - Windows: `dist/PCAN_Viewer_JJ_R013_win/PCAN_Viewer_JJ_R013_win.exe`
-   - Linux: `dist/PCAN_Viewer_JJ_R013_linux/PCAN_Viewer_JJ_R013_linux` (리눅스용 README 파일 포함)
+   - Windows: `dist/CAN_Studio_JJ_R013_win/CAN_Studio_JJ_R013_win.exe`
+   - Linux: `dist/CAN_Studio_JJ_R013_linux/CAN_Studio_JJ_R013_linux` (리눅스용 README 파일 포함)
 
 3. 새로 생성된 R013 배포 폴더의 실행 파일을 실행합니다. 이전 실행 파일은 소스 수정만으로 갱신되지 않습니다.
 4. 배포 폴더에는 `MANUAL.md`, `USER_PANEL_SEQUENCE.md`, `USER_PANEL_RELEASE_NOTES.md`와 OS별 실행 안내가 포함됩니다.

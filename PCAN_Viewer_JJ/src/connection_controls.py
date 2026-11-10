@@ -118,7 +118,8 @@ class BusLogDialog(QDialog):
     def refresh(self):
         lines = []
         for entry in self.main.bus_events[self.bus]:
-            suffix = f" (반복 {entry['count']}회)" if entry['count'] > 1 else ''
+            suffix = (f" (반복 {entry['count']}회, 마지막 {entry.get('last_time', '')})"
+                      if entry['count'] > 1 else '')
             lines.append(f"[{entry['time']}] {entry['level']} {entry['message']}{suffix}")
             if entry['details']:
                 lines.append(entry['details'])
@@ -282,6 +283,9 @@ class ConnectionGrid(QTableWidget):
                 button.setEnabled(not busy and (connected or self.main.can_open(bus)))
                 self.buttons[bus, 'refresh'].setEnabled(not busy and not connected)
                 summary, level = self.main.bus_summary(bus)
+                load_text = getattr(self.main, 'bus_load_text', lambda b: '')(bus)
+                if load_text:
+                    summary = f'{summary} · {load_text}'
                 label = self.states[bus]
                 label.setText(label.fontMetrics().elidedText(summary, Qt.ElideRight, max(0, label.width())))
                 label.setToolTip(summary)

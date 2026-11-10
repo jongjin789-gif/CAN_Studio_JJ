@@ -62,11 +62,10 @@
       "id": 0,
       "is_fd": false,
       "is_brs": false,
-      "length": 4,
+      "length": 3,
       "data": [
         85,
-        85,
-        85,
+        170,
         85
       ],
       "cycle": 10,
@@ -82,5 +81,14 @@
   "ui": {
     "dbc_collapsed": false,
     "can_collapsed": false
+  },
+  "tools": {
+    "gateway_rules": [],
+    "trigger": null,
+    "timeout": {
+      "enabled": true,
+      "factor": 3.0,
+      "measured": true
+    }
   }
 }

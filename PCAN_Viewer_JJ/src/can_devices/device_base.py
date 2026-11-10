@@ -107,6 +107,10 @@ class CanDeviceBackend:
 
     # ---- monitoring --------------------------------------------------------
     def poll_status(self, bus):
-        """Return ``None`` (no information), ``('ok', detail)``, ``('warn', detail)``
-        or ``('busoff', detail)``."""
+        """Return ``None`` (no information), ``('ok', detail)``, ``('warn', detail)``,
+        ``('busoff', detail)`` or ``('lost', detail)`` when the device was removed."""
+        return None
+
+    def error_counters(self, bus):
+        """Return the controller ``(TEC, REC)`` error counters, or ``None`` if unsupported."""
         return None

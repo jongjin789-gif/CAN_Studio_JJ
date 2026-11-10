@@ -6,6 +6,8 @@ import hashlib
 import os
 import platform
 import sys
+from src.gateway import normalized_rules
+from src.trigger_capture import TriggerConfig
 from pathlib import Path
 import uuid
 from types import SimpleNamespace
@@ -149,7 +151,27 @@ class SessionManager(QObject):
         return dict(format=FORMAT, version=2, databases=databases,
                     can={str(b): self.capture_can(b) for b in BUS_IDS},
                     tx_packets=packets, graphs=graphs, panel=panel_state,
-                    ui=dict(dbc_collapsed=m.db_group.is_collapsed(), can_collapsed=m.conn_group.is_collapsed()))
+                    ui=dict(dbc_collapsed=m.db_group.is_collapsed(), can_collapsed=m.conn_group.is_collapsed()),
+                    tools=self.capture_tools())
+
+    def capture_tools(self):
+        """Gateway rules, trigger and timeout settings (optional key; older files lack it)."""
+        m = self.main
+        trigger = m.trigger.config
+        return dict(gateway_rules=copy.deepcopy(m.gateway.rules),
+                    trigger=trigger.to_dict() if trigger is not None else None,
+                    timeout=dict(m.timeout_monitor.settings))
+
+    def apply_tools(self, tools):
+        """Restore tool settings. Invalid values are ignored; the gateway always starts off."""
+        m = self.main
+        tools = tools if isinstance(tools, dict) else {}
+        try:
+            m.set_gateway(normalized_rules(tools.get('gateway_rules')), False)
+        except ValueError:
+            m.set_gateway([], False)
+        m.trigger.set_config(TriggerConfig.from_dict(tools.get('trigger')))
+        m.timeout_monitor.configure(tools.get('timeout'))
 
     def autosave(self):
         if (not self.ready or not self.enabled or self.busy or self.main.viewer_only
@@ -400,6 +422,8 @@ class SessionManager(QObject):
             m.user_panel_window.deleteLater()
             m.user_panel_window = None
         m.close_can()
+        m.trigger.clear()
+        m._trigger_item = None
         m.tree.clear()
         m.signal_tree_items.clear()
         m.signal_choices.clear()
@@ -499,6 +523,7 @@ class SessionManager(QObject):
             m.bus_state_changed.emit(bus)
         m.btn_open_log.setEnabled(any(m.db_messages.values()))
         m.tx_panel.update_all_action_buttons()
+        self.apply_tools(data.get('tools'))
 
     def load(self, path, startup=False):
         if self.main.viewer_only or self.busy:

@@ -9,6 +9,7 @@ from .sequence import validate_steps, format_can_id
 from .inline_editor import show_inline_editor
 from .packets import RegisteredCommandDialog
 from .masked_data import MaskedDataInput, format_masked
+from src.spin_input import spin_with_hint
 
 
 class PacketActionDialog(QDialog):
@@ -96,16 +97,18 @@ class SequencePacketDialog(TxPacketDialog):
         self.timeout = QSpinBox()
         self.timeout.setRange(1, 600000)
         self.timeout.setValue(int(step.get('timeout_ms', 1000)))
-        self.timeout.setSuffix(" ms timeout")
         self.repeat = QSpinBox()
         self.repeat.setRange(1, 10000)
         self.repeat.setValue(int(step.get('repeat', 1)))
-        self.repeat.setPrefix("Repeat: ")
         self.bits = QPushButton("비트 값 편집")
         self.bits.clicked.connect(self.edit_bits)
         extras = QHBoxLayout()
         extras.addWidget(self.extended)
-        extras.addWidget(self.timeout if self.receive_mode else self.repeat)
+        if self.receive_mode:
+            extras.addWidget(spin_with_hint(self.timeout, "ms timeout", "응답을 기다릴 최대 시간(ms)"))
+        else:
+            extras.addWidget(QLabel("Repeat:"))
+            extras.addWidget(spin_with_hint(self.repeat, "회", "이 CMD를 반복 송신할 횟수"))
         extras.addWidget(self.bits)
         self.layout().insertLayout(1, extras)
         if step.get('packet'):

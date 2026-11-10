@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from PyQt5.QtWidgets import QAction, QDialog, QMessageBox, QTextBrowser, QVBoxLayout
 from src.utils import get_resource_path
+from src.app_info import APP_NAME
 
 
 def install_main_menu(main):
@@ -28,7 +29,7 @@ def install_main_menu(main):
         action(files, '통합 설정 저장…', main.session.save_dialog, shortcut='Ctrl+Shift+S')
         action(files, '통합 설정 불러오기…', main.session.load_dialog, shortcut='Ctrl+Shift+O')
         files.addSeparator()
-    action(files, 'TRC 로그 열기…', main.btn_open_log.click, main.btn_open_log)
+    action(files, 'CAN 로그 열기… (TRC/ASC/BLF)', main.btn_open_log.click, main.btn_open_log)
     files.addSeparator()
     action(files, '종료', main.close)
 
@@ -53,6 +54,11 @@ def install_main_menu(main):
             availability.append((opened, lambda b=bus: main.can_open(b)))
             availability.append((closed, lambda b=bus: main.buses[b] is not None and b not in main._bus_busy))
         action(can_menu, '전체 연결 해제', main.close_can)
+        can_menu.addSeparator()
+        action(can_menu, '신호 통계 / 수신 타임아웃…', main.open_signal_stats)
+        action(can_menu, 'BUS 게이트웨이…', main.open_gateway)
+        trigger_clear = action(can_menu, '트리거 해제', main.clear_trigger)
+        availability.append((trigger_clear, lambda: main.trigger.config is not None))
         tx = bar.addMenu('송신')
         for label, button in (('패킷 생성…', main.tx_panel.btn_add),
                               ('TX 목록 저장…', main.tx_panel.btn_save),
@@ -68,7 +74,7 @@ def install_main_menu(main):
                              ('변경 내역', 'USER_PANEL_RELEASE_NOTES.md')):
         action(help_menu, label, lambda name=filename, title=label: show_document(main, name, title))
     action(help_menu, '프로그램 정보', lambda: QMessageBox.information(
-        main, '프로그램 정보', f'PCAN Viewer JJ {main.get_app_version()}\n통합 설정 형식: v2 (.pjjsettings) / v1 불러오기 지원'))
+        main, '프로그램 정보', f'{APP_NAME} {main.get_app_version()}\n통합 설정 형식: v2 (.pjjsettings) / v1 불러오기 지원'))
 
     def refresh():
         for item, button in mirrored:
