@@ -53,7 +53,7 @@ R013 자동 테스트는 **Python 3.13** 환경에서 수행합니다. 새 개�
 
 Kvaser는 메인창 또는 유저패널의 **통신 설정 / DBC → CAN 방식 → Kvaser**에서 선택합니다. **Refresh → Channel → Baudrate → Open** 순서로 연결하며, FD 지원 채널은 **Data Bitrate**에서 Off 이외의 값을 선택해 CAN FD를 사용합니다. ISO/Non-ISO 지원 범위와 최대 속도는 장치에 따라 다릅니다. 가상 채널에는 `[Virtual]` 표시가 붙습니다.
 
-**candleLight(gs_usb) USB-CAN 어댑터**(VID 1D50 / PID 606F 등)는 **CAN 방식 → candleLight (gs_usb)**에서 선택합니다. Classic CAN 전용이며(CAN FD 불가), 같은 어댑터는 USB 순서가 바뀌어도 시리얼 번호로 다시 찾습니다. 장치 관리자에서 어댑터가 **COM 포트**로 보이면 시리얼 드라이버가 잘못 설치된 상태이므로 `Driver\candleLight_WinUSB\Install_candleLight_WinUSB.bat`을 더블클릭해 WinUSB 드라이버로 바꾸세요. 필요한 Python 패키지(`gs_usb`, `libusb-package`)는 `requirements.txt`에 포함되어 있고 EXE에도 함께 빌드됩니다. Linux에서는 커널 gs_usb 드라이버로 `can0`이 되므로 **SocketCAN**으로 선택합니다.
+**candleLight(gs_usb) USB-CAN 어댑터**(VID 1D50 / PID 606F 등)는 **CAN 방식 → candleLight**에서 선택합니다. Classic CAN 전용이며(CAN FD 불가), 같은 어댑터는 USB 순서가 바뀌어도 시리얼 번호로 다시 찾습니다. 장치 관리자에서 어댑터가 **COM 포트**로 보이면 시리얼 드라이버가 잘못 설치된 상태이므로 `Driver\candleLight_WinUSB\Install_candleLight_WinUSB.bat`을 더블클릭해 WinUSB 드라이버로 바꾸세요. 필요한 Python 패키지(`gs_usb`, `libusb-package`)는 `requirements.txt`에 포함되어 있고 EXE에도 함께 빌드됩니다. Linux에서는 커널 gs_usb 드라이버로 `can0`이 되므로 **SocketCAN**으로 선택합니다.
 
 기존 `python-can` 패키지를 사용하므로 별도의 Python `canlib` 패키지나 CANlib SDK 설치는 필요하지 않습니다. EXE도 대상 PC에 Kvaser 드라이버가 필요하며, 기존 EXE에는 소스 수정이 반영되지 않으므로 재빌드하세요. Linux의 Kvaser 장치는 커널 드라이버로 노출되는 `canX`를 **SocketCAN**으로 선택합니다.
 

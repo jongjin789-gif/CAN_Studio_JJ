@@ -185,10 +185,15 @@ class ConnectionGrid(QTableWidget):
             max(100, metrics.horizontalAdvance('Open / Close') + 12))
         for column, width in enumerate(self._full_widths):
             self.setColumnWidth(column, width)
+        # Keep the "CAN 방식" column narrow (the State column needs the room): its combo uses a
+        # smaller font when a method name (e.g. candleLight) would not fit the column.
+        method_font = self._fit_font(font, self._method_names(main), self._full_widths[0] - 30)
         for row, bus in enumerate(BUS_IDS):
             for column, key in enumerate(FIELD_KEYS):
                 field = (RateComboBox() if key in ('bitrate', 'data_bitrate')
                          else CenteredComboBox() if key in ('backend', 'fd_iso') else QComboBox())
+                if key == 'backend':
+                    field.setFont(method_font)
                 field.setMinimumWidth(0)
                 field.setMinimumContentsLength(1)
                 field.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -238,6 +243,25 @@ class ConnectionGrid(QTableWidget):
             self.timer.timeout.connect(self.refresh)
             self.timer.start(200)
         main.bus_state_changed.connect(lambda bus: self.refresh())
+
+    @staticmethod
+    def _method_names(main):
+        devices = getattr(main, 'devices', None)
+        names = [backend.label for backend in devices.selectable()] if devices is not None else []
+        return names + ['ALL', 'SocketCAN']
+
+    @staticmethod
+    def _fit_font(font, texts, room, smallest=6.5):
+        """``font`` reduced in 0.5 pt steps until every text fits ``room`` pixels."""
+        from PyQt5.QtGui import QFont, QFontMetrics
+        fitted = QFont(font)
+        size = fitted.pointSizeF()
+        while size > smallest:
+            if max(QFontMetrics(fitted).horizontalAdvance(text) for text in texts) <= room:
+                break
+            size -= 0.5
+            fitted.setPointSizeF(size)
+        return fitted
 
     def perform(self, callback):
         if self.before_action:

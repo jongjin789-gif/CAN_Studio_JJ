@@ -315,7 +315,7 @@ chmod +x {app_prefix}_{APP_VERSION}_linux
 - Kvaser 드라이버: https://kvaser.com/download/ (설치 후 장치 연결 및 프로그램 재실행)
 - 통신 설정의 CAN 방식에서 PCAN/Kvaser 선택 → Refresh → Channel/속도 설정 → Open.
 - Kvaser FD 지원 채널은 Data Bitrate에서 Off 이외의 값을 선택합니다. 지원 속도/ISO 모드는 장치에 따라 다릅니다.
-- candleLight(gs_usb) 어댑터: CAN 방식에서 "candleLight (gs_usb)" 선택. Classic CAN 전용입니다.
+- candleLight(gs_usb) 어댑터: CAN 방식에서 "candleLight" 선택. Classic CAN 전용입니다.
   장치 관리자에서 COM 포트로 보이면 Driver\\candleLight_WinUSB\\Install_candleLight_WinUSB.bat 으로 WinUSB 드라이버로 바꾸세요.
 - 드라이버 도구는 이 폴더의 Driver 폴더에 있습니다:
   Driver\\pcan_drivers\\Install_PCAN_USB_Driver.bat (PEAK PCAN-USB 드라이버, x64),

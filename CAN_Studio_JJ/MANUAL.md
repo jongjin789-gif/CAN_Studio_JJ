@@ -25,7 +25,7 @@
 ### candleLight (gs_usb) USB-CAN 어댑터 (Windows)
 
 1. 어댑터를 연결합니다. 장치 관리자에서 **포트(COM & LPT)** 아래 COM 포트로 보이면 `Driver\candleLight_WinUSB\Install_candleLight_WinUSB.bat`을 더블클릭해 WinUSB 드라이버로 바꿉니다(관리자 권한 확인 필요, 외부 드라이버 설치 없음). **범용 직렬 버스 장치** 아래에 보이면 정상입니다.
-2. **통신 설정 / DBC → CAN 방식 → candleLight (gs_usb)**를 선택하면 채널이 자동 검색됩니다. 채널명에 장치 번호(#)와 일련번호(S/N)가 표시됩니다.
+2. **통신 설정 / DBC → CAN 방식 → candleLight**를 선택하면 채널이 자동 검색됩니다. 채널명에 장치 번호(#)와 일련번호(S/N)가 표시됩니다.
 3. **Baudrate**를 설정하고 **Open**을 누릅니다. **Classic CAN 전용**이라 Data Bitrate는 N/A이며 CAN FD 프레임은 송신하지 않습니다.
 4. USB를 다시 꽂아 장치 순서가 바뀌어도 일련번호로 같은 어댑터를 찾습니다. 연결 중 USB를 뽑으면 장치 분리로 감지해 연결을 해제합니다.
 5. 다른 프로그램이 어댑터를 사용 중이면 연결할 수 없습니다(WinUSB는 한 프로그램만 사용 가능).

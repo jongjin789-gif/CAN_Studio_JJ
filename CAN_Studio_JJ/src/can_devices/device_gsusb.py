@@ -298,7 +298,7 @@ def _make_bus_class():
 
 class GsUsbBackend(CanDeviceBackend):
     key = 'gs_usb'
-    label = 'candleLight (gs_usb)'
+    label = 'candleLight'   # shown in the narrow "CAN 방식" column; the key stays 'gs_usb'
     bustypes = ('gs_usb',)
     platforms = ('Windows',)
     empty_text = NOT_FOUND_TEXT

@@ -9,16 +9,18 @@
   },
   "can": {
     "1": {
-      "backend": "gs_usb",
+      "backend": "pcan",
       "device": {
-        "bustype": "gs_usb",
-        "handle": 0,
-        "serial": "003800273630510B20373050"
+        "bustype": "pcan",
+        "handle": 81,
+        "device_id": 429330452,
+        "device_type": 5,
+        "controller_number": 0
       },
-      "channel": "candleLight USB to CAN adapter (#0, S/N 003800273630510B20373050)",
+      "channel": "PCAN-USB FD (0x51) [FD]",
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
-      "data_bitrate": "N/A",
+      "data_bitrate": "Off",
       "is_open": false
     },
     "2": {
