@@ -37,6 +37,11 @@ from src.bus_config import normalized_signature
 from src.session_manager import device_identity, same_device
 from src.button_icons import decorate_button, button_icon
 from src.main_theme import apply_main_theme, packet_section
+from src.driver_setup_ui import DriverSetupController
+
+# "CAN 방식" combo entry that lists the channels of every method of this OS at once.
+ALL_METHODS = 'all'
+ALL_METHODS_LABEL = 'ALL'
 
 
 def _signal_display_decimals(signal):
@@ -106,6 +111,8 @@ class UniversalCANMonitor(QMainWindow):
         
         # CAN 통신 방식별 장치 모듈(src/can_devices/device_*.py). 연결 그리드보다 먼저 만들어야 합니다.
         self.devices = DeviceRegistry(self)
+        # Windows: adapters connected without a working driver -> guide the driver setup.
+        self.driver_setup = DriverSetupController(self)
         self.buses = {b: None for b in BUS_IDS}
         self.bus_capabilities = {b: {'is_fd': False} for b in BUS_IDS}
         self._bus_busy = set()
@@ -451,7 +458,9 @@ class UniversalCANMonitor(QMainWindow):
         for bus in BUS_IDS:
             for backend in self.devices.selectable():
                 self.combo_backend[bus].addItem(backend.label, backend.key)
-            self.combo_backend[bus].setToolTip('CAN 통신 방식')
+            if len(self.devices.selectable()) > 1:   # Windows: PCAN / Kvaser / candleLight / ALL
+                self.combo_backend[bus].addItem(ALL_METHODS_LABEL, ALL_METHODS)
+            self.combo_backend[bus].setToolTip('CAN 통신 방식 (ALL: 모든 방식의 장치를 함께 표시)')
             self.combo_backend[bus].currentIndexChanged.connect(lambda idx, b=bus: self.on_backend_changed(b))
             self.combo_fd_iso[bus].addItems(['ISO', 'Non-ISO'])
             self.combo_channels[bus].currentIndexChanged.connect(lambda idx, b=bus: self.on_channel_changed(b))
@@ -654,11 +663,27 @@ class UniversalCANMonitor(QMainWindow):
         finally:
             self.tree.blockSignals(False)
 
-    def selected_backend(self, bus_num):
-        """CAN 방식 콤보에서 고른 장치 모듈 (없으면 OS 기본값)."""
+    def selected_method(self, bus_num):
+        """CAN 방식 콤보 값: 장치 모듈 키 또는 ALL ('all'). 콤보가 없으면 OS 기본 방식."""
         combo = getattr(self, 'combo_backend', {}).get(bus_num)
         key = combo.currentData() if combo is not None else None
+        if key == ALL_METHODS or self.devices.get(key) is not None:
+            return key
+        return self.devices.default_key()
+
+    def selected_backend(self, bus_num):
+        """CAN 방식 콤보에서 고른 장치 모듈 (ALL이거나 없으면 OS 기본값)."""
+        key = self.selected_method(bus_num)
         return self.devices.get(key) or self.devices.get(self.devices.default_key())
+
+    def refresh_channels(self, bus_num=None):
+        """User-started search (Refresh button / menu): search, then offer a driver setup if needed."""
+        self.search_can_channels(bus_num)
+        self.driver_setup.offer_later([bus_num] if bus_num else list(BUS_IDS))
+
+    def offer_driver_setup(self, bus_num):
+        """Called when the user picks a CAN method: guide a driver setup after the search."""
+        self.driver_setup.offer_later([bus_num])
 
     def channel_backend(self, bus_num):
         """선택된 채널을 실제로 여는 장치 모듈 (채널 데이터의 bustype 기준)."""
@@ -1172,10 +1197,13 @@ class UniversalCANMonitor(QMainWindow):
             combo = self.combo_channels[bus]
             index = next((i for i in range(combo.count())
                           if same_device(device_identity(combo.itemData(i)), desired)), -1)
-            if desired is None:
-                index = next((i for i in range(combo.count())
-                              if device_identity(combo.itemData(i)) is not None), -1)
-            if desired is None:
+            # No previous device, or the CAN method was changed (the previous device belongs to
+            # another module): select the first found channel. A device that vanished from the
+            # same method's list stays unselected so another port is never picked silently.
+            listed = {(combo.itemData(i) or {}).get('bustype') for i in range(combo.count())
+                      if isinstance(combo.itemData(i), dict)}
+            method_changed = desired is not None and bool(listed) and desired.get('bustype') not in listed
+            if desired is None or (index < 0 and method_changed):
                 index = next((i for i in range(combo.count())
                               if device_identity(combo.itemData(i)) is not None), -1)
             if combo.isEnabled():
@@ -1196,22 +1224,59 @@ class UniversalCANMonitor(QMainWindow):
         """Linux: SocketCAN(can0~, vcan0~) 채널을 검색합니다."""
         self._populate_channels(bus_num)
 
+    def _list_method_channels(self, method):
+        """``(channels, empty_text)`` of one CAN method, or of every method for ALL."""
+        if method != ALL_METHODS:
+            backend = self.devices.get(method) or self.selected_backend(None)
+            channels = backend.list_channels()
+            return channels, backend.empty_text
+        channels, missing = [], []
+        for backend in self.devices.selectable():
+            try:
+                found = backend.list_channels()
+            except Exception as exc:   # one module must not hide the other devices
+                found = []
+                self.panel_system_event(f'{backend.label} 장치 검색 오류: {exc}', 'WARN')
+            # Driver-provided virtual channels (e.g. Kvaser) would only clutter the ALL list.
+            found = [(text, data) for text, data in found if not data.get('is_virtual')]
+            if not found:
+                hint = backend.empty_text or ''
+                missing.append(f"{backend.label} 드라이버 없음" if any(
+                    word in hint for word in ('드라이버', '라이브러리', '설치')) else f'{backend.label} 없음')
+            channels += found
+        return channels, '장치 없음 · ' + ' / '.join(missing)
+
     def _populate_channels(self, bus_num=None):
         buses_to_update = [b for b in ([bus_num] if bus_num else BUS_IDS) if self.buses[b] is None and b not in self._bus_busy]
         found = {}  # 같은 방식은 한 번만 검색합니다.
+        methods = {b: self.selected_method(b) for b in buses_to_update}
+        # Connected adapters without a working driver (Windows), checked once per search.
+        if ALL_METHODS in methods.values():
+            issues = self.driver_setup.issues(ALL_METHODS)
+        else:
+            issues = [issue for method in sorted(set(methods.values())) for issue in self.driver_setup.issues(method)]
         for b in buses_to_update:
-            backend = self.selected_backend(b)
-            if backend.key not in found:
-                found[backend.key] = backend.list_channels()
+            method = methods[b]
+            if method not in found:
+                found[method] = self._list_method_channels(method)
+            channels, empty_text = found[method]
             combo = self.combo_channels[b]
             combo.clear()
             combo.setEnabled(True)
             self.combo_bitrate[b].setEnabled(True)
             self.btn_refresh[b].setEnabled(True)
-            for text, data in found[backend.key]:
+            for text, data in channels:
                 combo.addItem(text, dict(data))
-            if combo.count() == 0:
-                combo.addItem(backend.empty_text, None)
+            # Shown, not selectable: the Refresh button offers the driver setup for these.
+            needs_driver = [issue for issue in issues if method == ALL_METHODS or issue.product == method]
+            for issue in needs_driver:
+                combo.addItem(f'{issue.name} · {issue.hint}', None)
+                item = combo.model().item(combo.count() - 1) if hasattr(combo.model(), 'item') else None
+                if item is not None and channels:
+                    item.setEnabled(False)
+            if not channels:
+                if not needs_driver:
+                    combo.addItem(empty_text, None)
                 combo.setEnabled(False)
             else:
                 self.on_channel_changed(b) # 초기화 시 FD UI 갱신

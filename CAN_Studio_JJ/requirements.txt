@@ -5,3 +5,6 @@ python-can~=4.6.1
 cantools~=41.3
 pyqtgraph~=0.14.0
 pyinstaller~=6.20
+# candleLight / gs_usb USB-CAN adapters on Windows (WinUSB). Linux uses the kernel gs_usb driver (SocketCAN).
+gs_usb~=0.3.1; sys_platform == "win32"
+libusb-package~=1.0.30; sys_platform == "win32"

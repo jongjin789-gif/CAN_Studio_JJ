@@ -41,6 +41,9 @@ def same_device(first, second):
     if (first.get('bustype') == second.get('bustype') == 'kvaser'
             and all(key in item for item in (first, second) for key in ('serial', 'dongle_channel'))):
         return all(first[key] == second[key] for key in ('serial', 'dongle_channel'))
+    # gs_usb device numbers follow USB enumeration order; the serial number identifies the adapter.
+    if first.get('bustype') == second.get('bustype') == 'gs_usb' and first.get('serial') and second.get('serial'):
+        return first['serial'] == second['serial']
     return first == second
 
 
@@ -90,6 +93,9 @@ class SessionManager(QObject):
 
     def _backend_key(self, bus):
         """CAN 방식(장치 모듈) 키. 이전 버전 파일에는 없으며 device.bustype으로 대신 판단합니다."""
+        method = getattr(self.main, 'selected_method', None)
+        if callable(method):
+            return method(bus)          # a module key, or 'all' for the ALL method
         selected = getattr(self.main, 'selected_backend', None)
         return selected(bus).key if callable(selected) else None
 

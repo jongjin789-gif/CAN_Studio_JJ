@@ -31,7 +31,7 @@ def settings(backend, channel, nominal='500 kBit/s', data='Off', iso='ISO'):
 class RegistryTest(unittest.TestCase):
     def test_methods_offered_per_os(self):
         registry = DeviceRegistry(None)
-        self.assertEqual([b.key for b in registry.selectable('Windows')], ['pcan', 'kvaser'])
+        self.assertEqual([b.key for b in registry.selectable('Windows')], ['pcan', 'kvaser', 'gs_usb'])
         self.assertEqual([b.key for b in registry.selectable('Linux')], ['socketcan'])
         self.assertEqual(registry.default_key('Windows'), 'pcan')
         self.assertEqual(registry.default_key('Linux'), 'socketcan')
@@ -288,6 +288,160 @@ class SocketCanBackendTest(unittest.TestCase):
         self.assertEqual([text for text, _ in channels], ['can0 [SocketCAN]', 'can1 [SocketCAN]', 'Test-Only (vcan0)'])
 
 
+class GsUsbBackendTest(unittest.TestCase):
+    """candleLight / gs_usb (Windows): discovery, serial-based reopen, Classic-only, echo/timestamps."""
+
+    @staticmethod
+    def device(serial, product='candleLight USB to CAN adapter'):
+        return SimpleNamespace(serial_number=serial, gs_usb=SimpleNamespace(product=product))
+
+    def scanner(self, *devices):
+        return SimpleNamespace(scan=Mock(return_value=list(devices)))
+
+    def test_discovery_lists_classic_channels_with_serial(self):
+        from src.can_devices.device_gsusb import GsUsbBackend
+        scanner = self.scanner(self.device('AAA'), self.device('BBB'))
+        with patch('src.can_devices.device_gsusb.load_gs_usb', return_value=scanner), \
+                patch('src.can_devices.device_gsusb._release') as release:
+            channels = GsUsbBackend(None).list_channels()
+        self.assertEqual([text for text, _ in channels],
+                         ['candleLight USB to CAN adapter (#0, S/N AAA)', 'candleLight USB to CAN adapter (#1, S/N BBB)'])
+        self.assertEqual(channels[1][1], dict(bustype='gs_usb', handle=1, is_fd=False, serial='BBB'))
+        release.assert_called_once()   # scan handles are closed so the device can be opened
+        self.assertIsNone(GsUsbBackend(None).data_bitrates(channels[0][1]))
+
+    def test_missing_library_or_device_is_explained_in_channel_combo(self):
+        from src.can_devices.device_gsusb import GsUsbBackend, LIBRARY_MESSAGE, NOT_FOUND_TEXT
+        backend = GsUsbBackend(None)
+        with patch('src.can_devices.device_gsusb.load_gs_usb',
+                   side_effect=DeviceOpenError('gs_usb 라이브러리 확인', LIBRARY_MESSAGE)):
+            self.assertEqual(backend.list_channels(), [])
+        self.assertEqual(backend.empty_text, LIBRARY_MESSAGE)
+        with patch('src.can_devices.device_gsusb.load_gs_usb', return_value=self.scanner()):
+            self.assertEqual(backend.list_channels(), [])
+        self.assertEqual(backend.empty_text, NOT_FOUND_TEXT)
+
+    def test_open_follows_serial_after_usb_reordering_and_rejects_fd(self):
+        from src.can_devices.device_gsusb import GsUsbBackend
+        backend = GsUsbBackend(None)
+        channel = dict(bustype='gs_usb', handle=0, is_fd=False, serial='BBB')
+        scanner = self.scanner(self.device('AAA'), self.device('BBB'))
+        bus_class = Mock(return_value='bus')
+        with patch('src.can_devices.device_gsusb.load_gs_usb', return_value=scanner), \
+                patch('src.can_devices.device_gsusb._release'), \
+                patch('src.can_devices.device_gsusb._make_bus_class', return_value=bus_class):
+            self.assertEqual(backend.open(channel, settings(backend, channel, '250 kBit/s')), ('bus', False))
+            bus_class.assert_called_once_with(1, 250000)
+            with self.assertRaises(DeviceOpenError):
+                backend.open(dict(channel, serial='GONE'), settings(backend, channel))
+        fd = OpenSettings('500 kBit/s', {'bitrate': 500000}, True, '2 MBit/s', {'data_bitrate': 2000000}, 'ISO')
+        with self.assertRaises(DeviceOpenError) as raised:
+            backend.open(channel, fd)
+        self.assertIn('Classic', raised.exception.message)
+
+    @staticmethod
+    def bus():
+        """CandleBus without hardware: only the state used by frame handling and send()."""
+        import threading
+        from src.can_devices.device_gsusb import _make_bus_class
+        bus_class = _make_bus_class()
+        bus = bus_class.__new__(bus_class)
+        bus._base, bus._last_raw, bus._wraps = None, None, 0
+        bus._tx_ready, bus._pending, bus._next_echo = threading.Condition(), None, 0
+        bus._echo_timeout, bus.resent, bus.channel_info = 0.02, 0, 0
+        bus.gs_usb = SimpleNamespace(device_flags=1 << 4, send=Mock())
+        return bus
+
+    @staticmethod
+    def frame(us, can_id=0x123, echo_id=0xFFFFFFFF, data=(1, 2)):
+        from gs_usb.gs_usb_frame import GsUsbFrame
+        frame = GsUsbFrame(can_id=can_id, data=list(data))
+        frame.echo_id, frame.timestamp_us = echo_id, us
+        return frame
+
+    def test_rx_frames_echo_release_and_timestamp_unwrap(self):
+        bus = self.bus()
+        bus._pending = ('frame', 0.0, 0)
+        with patch('time.time', return_value=1000.0):
+            first = bus._on_frame(self.frame(4_294_967_000))
+            echo = bus._on_frame(self.frame(4_294_967_100, echo_id=3))       # our TX confirmed
+            late = bus._on_frame(self.frame(4_294_966_900))                  # slightly out of order
+            wrapped = bus._on_frame(self.frame(1_000))                       # 32-bit counter wrapped
+        self.assertIsNone(echo)
+        self.assertIsNone(bus._pending)                                      # send slot released
+        self.assertEqual((first.arbitration_id, bytes(first.data), first.is_rx), (0x123, b'\x01\x02', True))
+        self.assertAlmostEqual(first.timestamp, 1000.0)
+        self.assertAlmostEqual(late.timestamp - first.timestamp, -0.0001, places=6)   # no false wrap
+        self.assertAlmostEqual(wrapped.timestamp - first.timestamp, (2**32 + 1_000 - 4_294_967_000) / 1e6, places=6)
+
+    def test_send_tags_distinct_echo_ids_waits_for_echo_and_rejects_fd(self):
+        import can
+        from src.can_devices import device_gsusb
+        bus = self.bus()
+        bus.send(can.Message(arbitration_id=0x18DAF110, data=b'\x11\x22', is_extended_id=True))
+        frame = bus.gs_usb.send.call_args.args[0]
+        self.assertEqual((frame.can_id, frame.can_dlc, frame.echo_id), (0x18DAF110 | 0x80000000, 2, 0))
+        bus._echo_done()
+        bus.send(can.Message(arbitration_id=0x100, data=b'\x01'))
+        self.assertEqual(bus.gs_usb.send.call_args.args[0].echo_id, 1)
+        # No echo for the previous frame: the next send waits, then reports a clear error.
+        with patch.object(device_gsusb, 'TX_TIMEOUT_S', 0.05), self.assertRaises(can.CanOperationError) as raised:
+            bus.send(can.Message(arbitration_id=0x100, data=b'\x02'))
+        self.assertIn('ACK', str(raised.exception))
+        self.assertIsNone(bus._pending)   # not blocked forever
+        with self.assertRaises(can.CanOperationError):
+            bus.send(can.Message(arbitration_id=1, data=bytes(12), is_fd=True))
+
+    def test_frame_without_echo_is_resent_by_watchdog(self):
+        import threading, time
+        import can
+        bus = self.bus()
+        bus._reading = threading.Event()
+        bus._reading.set()
+        watchdog = threading.Thread(target=bus._watch_loop, daemon=True)
+        watchdog.start()
+        bus.send(can.Message(arbitration_id=0x202, data=b'\x12\x34'))
+        time.sleep(0.1)                      # > echo timeout (20 ms): dropped by the adapter
+        bus._echo_done()
+        bus._reading.clear()
+        with bus._tx_ready:
+            bus._tx_ready.notify_all()
+        watchdog.join(1)
+        self.assertGreaterEqual(bus.gs_usb.send.call_count, 2)
+        self.assertLessEqual(bus.resent, 2)  # ECHO_RETRIES
+        self.assertIs(bus.gs_usb.send.call_args_list[0].args[0], bus.gs_usb.send.call_args_list[1].args[0])
+
+    def test_bit_timing_covers_every_offered_rate_and_keeps_previous_values(self):
+        from src.can_devices.device_base import NOMINAL_BITRATES
+        from src.can_devices.device_gsusb import bit_timing
+        # Limits reported by the tested candleLight (48 MHz, BRP up to 1024).
+        cap = SimpleNamespace(fclk_can=48_000_000, brp_min=1, brp_max=1024, brp_inc=1, tseg1_min=1,
+                              tseg1_max=16, tseg2_min=1, tseg2_max=8, sjw_max=4)
+        for _, rate in NOMINAL_BITRATES:
+            with self.subTest(rate=rate):
+                brp, tseg1, tseg2, sjw = bit_timing(cap, rate)
+                self.assertEqual(cap.fclk_can, rate * brp * (1 + tseg1 + tseg2))   # exact bitrate
+                self.assertTrue(1 <= tseg1 <= 16 and 1 <= tseg2 <= 8 and 1 <= sjw <= min(4, tseg2))
+        # Same values python-can produced before (>= 100 kBit/s); 50 kBit/s and below now work.
+        self.assertEqual(bit_timing(cap, 500_000), (6, 13, 2, 2))
+        self.assertEqual(bit_timing(cap, 800_000), (4, 12, 2, 2))
+        self.assertEqual(bit_timing(cap, 10_000), (300, 13, 2, 2))
+        with self.assertRaises(ValueError):
+            bit_timing(SimpleNamespace(**dict(vars(cap), brp_max=64)), 10_000)
+
+    def test_echo_timeout_scales_with_bitrate(self):
+        from src.can_devices.device_gsusb import echo_timeout
+        self.assertEqual(echo_timeout(500_000), 0.02)
+        self.assertAlmostEqual(echo_timeout(10_000), 30 * 135 / 10_000)
+
+    def test_same_adapter_is_matched_by_serial_after_renumbering(self):
+        from src.session_manager import same_device
+        self.assertTrue(same_device(dict(bustype='gs_usb', handle=0, serial='AAA'),
+                                    dict(bustype='gs_usb', handle=1, serial='AAA')))
+        self.assertFalse(same_device(dict(bustype='gs_usb', handle=0, serial='AAA'),
+                                     dict(bustype='gs_usb', handle=0, serial='BBB')))
+
+
 class PythonCanBackendTest(unittest.TestCase):
     def test_virtual_and_generic_arguments_match_previous_code(self):
         backend = PythonCanBackend(None)
@@ -322,6 +476,8 @@ class MainWindowMethodComboTest(unittest.TestCase):
 
     def test_each_bus_has_method_combo_and_search_uses_it(self):
         expected = [b.key for b in self.main.devices.selectable()]
+        if len(expected) > 1:
+            expected.append('all')   # ALL: every method of this OS at once (not on Linux)
         for bus in (1, 2, 3, 4):
             combo = self.main.combo_backend[bus]
             self.assertEqual([combo.itemData(i) for i in range(combo.count())], expected)

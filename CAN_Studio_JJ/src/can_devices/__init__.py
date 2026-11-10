@@ -3,6 +3,7 @@
     device_base.py       common contract (CanDeviceBackend)
     device_pcan.py       PCAN-Basic (Windows)
     device_kvaser.py     Kvaser CANlib (Windows)
+    device_gsusb.py      candleLight / gs_usb USB-CAN (Windows, WinUSB; Classic CAN)
     device_socketcan.py  SocketCAN can0~ (Linux, any adapter vendor)
     device_pythoncan.py  generic python-can interfaces (fallback, not listed yet)
 
@@ -17,11 +18,12 @@ from .device_base import (CanDeviceBackend, DeviceOpenCancelled, DeviceOpenError
                           OpenSettings, DEFAULT_NOMINAL_INDEX)
 from .device_pcan import PcanBackend
 from .device_kvaser import KvaserBackend
+from .device_gsusb import GsUsbBackend
 from .device_pythoncan import PythonCanBackend
 from .device_socketcan import SocketCanBackend
 
 # Order defines the order in the "CAN 방식" combo box.
-BACKEND_CLASSES = (PcanBackend, KvaserBackend, SocketCanBackend, PythonCanBackend)
+BACKEND_CLASSES = (PcanBackend, KvaserBackend, GsUsbBackend, SocketCanBackend, PythonCanBackend)
 FALLBACK_KEY = PythonCanBackend.key
 
 

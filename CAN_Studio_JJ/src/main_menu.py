@@ -48,7 +48,7 @@ def install_main_menu(main):
         can_menu = bar.addMenu('CAN')
         for bus in BUS_IDS:
             menu = can_menu.addMenu(f'BUS {bus}')
-            action(menu, '장치 검색', lambda b=bus: main.search_can_channels(b), main.btn_refresh[bus])
+            action(menu, '장치 검색', lambda b=bus: main.refresh_channels(b), main.btn_refresh[bus])
             opened = action(menu, '연결', lambda b=bus: main.open_can(b))
             closed = action(menu, '연결 해제', lambda b=bus: main.close_can(b))
             availability.append((opened, lambda b=bus: main.can_open(b)))

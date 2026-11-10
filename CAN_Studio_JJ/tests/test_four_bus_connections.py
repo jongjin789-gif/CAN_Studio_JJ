@@ -191,6 +191,20 @@ class FourBusConnectionsTest(unittest.TestCase):
             self.main.search_can_channels(4)
         self.assertEqual(combo.currentIndex(), -1)
 
+        # After switching the CAN method the old device cannot be in the new list:
+        # the first channel of the new method is selected instead of leaving it empty.
+        def discover_other_method(bus):
+            combo.clear()
+            combo.addItem('gs', dict(bustype='gs_usb', handle=0, is_fd=False, serial='S1'))
+
+        combo.clear()
+        combo.addItem('selected', selected)
+        combo.setCurrentIndex(0)
+        with patch('src.main_window.platform.system', return_value='Windows'), \
+                patch.object(self.main, 'search_windows_can_channels', side_effect=discover_other_method):
+            self.main.search_can_channels(4)
+        self.assertEqual(combo.currentData()['bustype'], 'gs_usb')
+
     def test_bus_four_dbc_signal_children_and_packet_roundtrip(self):
         self.install_db(1, ['One'])
         raw = self.install_db(4, ['A', 'B'])

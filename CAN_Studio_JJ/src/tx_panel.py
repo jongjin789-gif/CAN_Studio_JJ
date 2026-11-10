@@ -252,6 +252,11 @@ class TxPacketDialog(QDialog):
         # Only the number is editable; the unit and meaning are shown beside it.
         self.cycle_field = spin_with_hint(self.edit_cycle, "ms   (0 = 1회 송신)",
                                           "송신 주기(ms). 0이면 Send를 누를 때 한 번만 송신합니다.")
+        # Room for 10 digits: the style's frame/arrow width (from sizeHint) + 10 digit widths.
+        metrics = self.edit_cycle.fontMetrics()
+        self.edit_cycle.setFixedWidth(self.edit_cycle.sizeHint().width()
+                                      - metrics.horizontalAdvance(str(self.edit_cycle.maximum()))
+                                      + metrics.horizontalAdvance('0' * 10))
         form_layout.addRow("Cycle Time:", self.cycle_field)
         
         # 7. Note

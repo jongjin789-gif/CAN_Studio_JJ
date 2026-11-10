@@ -197,11 +197,15 @@ class ConnectionGrid(QTableWidget):
                 self.setCellWidget(row, column, field)
                 if mirror:
                     field.currentIndexChanged.connect(lambda index, b=bus, k=key: self.change(b, k, index))
+                if key == 'backend':
+                    # Picking a CAN method is a user-started search: offer a driver setup if needed.
+                    field.activated.connect(lambda index, b=bus: getattr(main, 'offer_driver_setup', lambda bus: None)(b))
             refresh = QPushButton()
             refresh.setIcon(button_icon('refresh'))
             refresh.setToolTip(f'BUS {bus}: Refresh / 장치 검색')
             refresh.setAccessibleName(f'BUS {bus} 장치 검색')
-            refresh.clicked.connect(lambda checked=False, b=bus: self.perform(lambda: main.search_can_channels(b)))
+            refresh.clicked.connect(lambda checked=False, b=bus: self.perform(
+                lambda: getattr(main, 'refresh_channels', main.search_can_channels)(b)))
             connect = QPushButton('Open')
             refresh.setFixedHeight(row_height)
             connect.setFixedHeight(row_height)

@@ -61,6 +61,10 @@ def _collect_hidden_imports():
     ]
     if platform.system() == 'Linux':
         potential_imports.append("can.interfaces.socketcan")
+    else:
+        # candleLight / gs_usb (src/can_devices/device_gsusb.py) imports these lazily.
+        # libusb_package ships its own PyInstaller hook that bundles libusb-1.0.dll.
+        potential_imports += ["gs_usb", "gs_usb.gs_usb", "usb.backend.libusb1", "libusb_package"]
 
     for module_name in potential_imports:
         # Windows에서 socketcan을 찾지 못해도 오류가 아니므로 find_spec으로 존재 여부만 확인
@@ -232,7 +236,18 @@ def build_executable():
             shutil.copy2(document_path, os.path.join(dist_path, document))
             print(f"[안내] {document} 파일이 배포 폴더에 복사되었습니다.")
 
-    
+    # Windows 장치 드라이버 설치 도구(Kvaser 드라이버 설치 파일, candleLight WinUSB 전환)를
+    # 배포 폴더의 Driver 폴더로 복사합니다. Linux는 커널 드라이버를 사용하므로 복사하지 않습니다.
+    driver_src = os.path.join(current_dir, 'Driver')
+    if current_os == 'Windows' and os.path.isdir(driver_src):
+        driver_dst = os.path.join(dist_path, 'Driver')
+        shutil.copytree(driver_src, driver_dst, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns('__pycache__', '*.tmp', 'Thumbs.db'))
+        for root, _, files in os.walk(driver_dst):
+            for name in files:
+                print(f"[안내] 드라이버 도구 복사: {os.path.relpath(os.path.join(root, name), dist_path)}")
+
+
     # OS별 배포용 README 파일(실행 가이드) 자동 생성
     if current_os == 'Linux':
         readme_path = os.path.join(dist_path, 'README_Linux_실행_가이드.md')
@@ -300,6 +315,11 @@ chmod +x {app_prefix}_{APP_VERSION}_linux
 - Kvaser 드라이버: https://kvaser.com/download/ (설치 후 장치 연결 및 프로그램 재실행)
 - 통신 설정의 CAN 방식에서 PCAN/Kvaser 선택 → Refresh → Channel/속도 설정 → Open.
 - Kvaser FD 지원 채널은 Data Bitrate에서 Off 이외의 값을 선택합니다. 지원 속도/ISO 모드는 장치에 따라 다릅니다.
+- candleLight(gs_usb) 어댑터: CAN 방식에서 "candleLight (gs_usb)" 선택. Classic CAN 전용입니다.
+  장치 관리자에서 COM 포트로 보이면 Driver\\candleLight_WinUSB\\Install_candleLight_WinUSB.bat 으로 WinUSB 드라이버로 바꾸세요.
+- 드라이버 도구는 이 폴더의 Driver 폴더에 있습니다:
+  Driver\\pcan_drivers\\Install_PCAN_USB_Driver.bat (PEAK PCAN-USB 드라이버, x64),
+  Driver\\kvaser_drivers\\kvaser_drivers_setup-*.exe (Kvaser 드라이버 설치), Driver\\candleLight_WinUSB (candleLight WinUSB 전환).
 - 가상환경 폴더나 소스코드(src)를 같이 들고 다닐 필요 없이, 이 폴더 내용물만 복사해서 배포/사용하시면 됩니다!
 
 [{APP_VERSION} 기능 및 사용 안내]
