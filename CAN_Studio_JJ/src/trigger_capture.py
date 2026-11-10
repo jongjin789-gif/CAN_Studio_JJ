@@ -88,15 +88,29 @@ class TriggerCapture(QObject):
         self._capture_start = 0.0
         self._end = 0.0
         self._last_state = False
+        self.active = False              # registered trigger is watching (False = stopped)
 
     @property
     def capturing(self):
         return self._capture is not None
 
-    def set_config(self, config):
+    def set_config(self, config, active=True):
         self.flush()
         self.config = config
+        self.active = config is not None and bool(active)
         self.fired = self.saved_files = 0
+        self._ring.clear()
+        self._last_state = False
+        self.state_changed.emit()
+
+    def set_active(self, active):
+        """Start/stop watching the registered trigger; stopping saves a running capture."""
+        active = self.config is not None and bool(active)
+        if active == self.active:
+            return
+        if not active:
+            self.flush()
+        self.active = active
         self._ring.clear()
         self._last_state = False
         self.state_changed.emit()
@@ -114,9 +128,9 @@ class TriggerCapture(QObject):
         return compare(value, self.config.op, self.config.value)
 
     def feed(self, ts, bus, can_id, data, is_ext, is_fd, is_rx):
-        if self.config is None:
+        if self.config is None or not self.active:
             return
-        frame = (ts, bus, can_id, bytes(data), bool(is_ext), bool(is_fd), bool(is_rx))
+        frame =(ts, bus, can_id, bytes(data), bool(is_ext), bool(is_fd), bool(is_rx))
         if self._capture is not None and (ts > self._end or ts - self._capture_start > MAX_CAPTURE_S):
             self.flush()
         if self._capture is not None:
@@ -179,11 +193,13 @@ class TriggerCapture(QObject):
         if self.config is None:
             return ''
         text = f'{self.config.op} {self.config.value:g}'
+        if not self.active:
+            return text + ' · 정지'
         if self.capturing:
             return text + ' · 저장 중'
         if self.saved_files:
             return text + f' · {self.saved_files}건'
-        return text
+        return text + ' · 감시'
 
 
 class TriggerDialog(QDialog):

@@ -12,7 +12,7 @@ from src.can_devices import (DeviceRegistry, DeviceOpenCancelled, DeviceOpenErro
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QLabel, 
                              QComboBox, QPushButton, QListWidget, QListWidgetItem, QShortcut, QLineEdit,
                              QTreeWidget, QSplitter, QMessageBox, QFileDialog, QTreeWidgetItemIterator, QInputDialog,
-                             QMenu)
+                             QMenu, QHeaderView)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QIcon, QKeySequence, QBrush, QColor
 from src.utils import get_resource_path, ReceiveTreeWidgetItem
@@ -57,6 +57,9 @@ def _signal_display_decimals(signal):
 
 
 TRIGGER_COLUMN = 9
+TRIGGER_COLUMN_WIDTH = 150
+TRIGGER_HINT_TEXT = '＋ 설정'
+TRIGGER_HINT_COLOR = QColor('#9aa7b0')
 _PCAN_ERROR_TYPES = {1: '비트 오류', 2: '폼 오류', 4: '스터프 오류', 8: '기타(ACK/CRC) 오류'}
 
 
@@ -586,14 +589,20 @@ class UniversalCANMonitor(QMainWindow):
         self.tree.setColumnWidth(6, 80)  # Unit
         self.tree.setColumnWidth(7, 100) # Cycle
         self.tree.setColumnWidth(8, 80)  # Count
-        self.tree.setColumnWidth(TRIGGER_COLUMN, 130)
+        self.tree.setColumnWidth(TRIGGER_COLUMN, TRIGGER_COLUMN_WIDTH)
+        # Window growth goes to Value; the trigger column keeps its width.
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        header.setSectionResizeMode(TRIGGER_COLUMN, QHeaderView.Fixed)
         self.tree.headerItem().setIcon(TRIGGER_COLUMN, button_icon('trigger'))
         self.tree.headerItem().setToolTip(
-            TRIGGER_COLUMN, '신호 행의 이 칸을 더블클릭(또는 우클릭 → 트리거 설정)하여 트리거를 등록합니다.\n'
+            TRIGGER_COLUMN, '신호 행의 이 칸을 클릭(또는 우클릭 → 트리거 설정)하여 트리거를 등록합니다.\n'
+                            '등록 후 클릭: 감시 중 → 정지, 정지 상태 → 설정 창 (확인 시 다시 감시)\n'
                             '조건이 참이 되면 앞뒤 1~2초의 모든 BUS 프레임을 Log 폴더에 TRC로 저장합니다. (1개만 등록)')
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_tree_menu)
-        self.tree.itemDoubleClicked.connect(self.on_tree_double_clicked)
+        self.tree.itemClicked.connect(self.on_tree_clicked)
         self.tree.setSortingEnabled(True)
         self.tree.sortByColumn(0, Qt.AscendingOrder) # Bus, then numeric CAN ID within each bus.
         self.tree.itemChanged.connect(self.on_tree_item_changed)
@@ -1828,6 +1837,7 @@ class UniversalCANMonitor(QMainWindow):
             key = (bus_num, can_id, sig.name)
             self.signal_tree_items[key] = sig_item
             sig_item.setData(0, SIGNAL_KEY_ROLE, key)
+            self._set_trigger_hint(sig_item)
             if self._trigger_key() == key:
                 self._trigger_item = None
                 self.refresh_trigger_cell()
@@ -2079,28 +2089,45 @@ class UniversalCANMonitor(QMainWindow):
         key = self._trigger_key()
         item = self.signal_tree_items.get(key) if key else None
         old = self._trigger_item
-        if old is not None and old is not item:
-            try:
-                old.setText(TRIGGER_COLUMN, '')
-                old.setToolTip(TRIGGER_COLUMN, '')
-            except RuntimeError:
-                pass
         self._trigger_item = item
         if old is not None and old is not item:
             try:
-                old.setIcon(TRIGGER_COLUMN, QIcon())
+                self._set_trigger_hint(old)
             except RuntimeError:
                 pass
         if item is not None:
+            active = self.trigger.active
             item.setText(TRIGGER_COLUMN, self.trigger.status_text())
             item.setIcon(TRIGGER_COLUMN, button_icon('trigger'))
+            item.setForeground(TRIGGER_COLUMN, QBrush(QColor('#1b5e20' if active else '#8a6d00')))
             config = self.trigger.config
             item.setToolTip(TRIGGER_COLUMN, f'트리거: {config.describe()} · 앞 {config.pre_s:g}초 / 뒤 {config.post_s:g}초\n'
-                                            f'발생 {self.trigger.fired}회 · 저장 {self.trigger.saved_files}건')
+                                            f'발생 {self.trigger.fired}회 · 저장 {self.trigger.saved_files}건\n'
+                                            + ('클릭: 트리거 정지' if active else '클릭: 설정 창 (확인 시 다시 감시)'))
 
-    def on_tree_double_clicked(self, item, column):
-        if column == TRIGGER_COLUMN and item.data(0, SIGNAL_KEY_ROLE):
+    def _set_trigger_hint(self, item):
+        """Mark a signal row's trigger cell as clickable (no trigger on it)."""
+        item.setText(TRIGGER_COLUMN, TRIGGER_HINT_TEXT)
+        item.setIcon(TRIGGER_COLUMN, QIcon())
+        item.setForeground(TRIGGER_COLUMN, QBrush(TRIGGER_HINT_COLOR))
+        item.setToolTip(TRIGGER_COLUMN, '클릭하여 이 신호에 트리거를 설정합니다.')
+
+    def on_tree_clicked(self, item, column):
+        """Trigger cell: none -> settings, active -> stop, stopped -> settings (OK re-arms)."""
+        key = item.data(0, SIGNAL_KEY_ROLE)
+        if column != TRIGGER_COLUMN or not key:
+            return
+        if key == self._trigger_key() and self.trigger.active:
+            self.set_trigger_active(False)
+        else:
             self.edit_trigger(item)
+
+    def set_trigger_active(self, active):
+        if self.trigger.config is None:
+            return
+        self.trigger.set_active(active)
+        self.statusBar().showMessage(f'트리거 {"감시 시작" if active else "정지"}: {self.trigger.config.describe()}', 4000)
+        self.session.autosave()
 
     def show_tree_menu(self, pos):
         item = self.tree.itemAt(pos)
@@ -2109,6 +2136,10 @@ class UniversalCANMonitor(QMainWindow):
         if key:
             menu.addAction(button_icon('trigger'), f'트리거 설정… ({key[2]})', lambda: self.edit_trigger(item))
         if self.trigger.config is not None:
+            if self.trigger.active:
+                menu.addAction('트리거 정지', lambda: self.set_trigger_active(False))
+            else:
+                menu.addAction('트리거 감시 시작', lambda: self.set_trigger_active(True))
             menu.addAction('트리거 해제', self.clear_trigger)
         if not menu.isEmpty():
             menu.exec_(self.tree.viewport().mapToGlobal(pos))

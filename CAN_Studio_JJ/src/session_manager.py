@@ -166,6 +166,7 @@ class SessionManager(QObject):
         trigger = m.trigger.config
         return dict(gateway_rules=copy.deepcopy(m.gateway.rules),
                     trigger=trigger.to_dict() if trigger is not None else None,
+                    trigger_active=bool(m.trigger.active),
                     timeout=dict(m.timeout_monitor.settings))
 
     def apply_tools(self, tools):
@@ -176,7 +177,9 @@ class SessionManager(QObject):
             m.set_gateway(normalized_rules(tools.get('gateway_rules')), False)
         except ValueError:
             m.set_gateway([], False)
-        m.trigger.set_config(TriggerConfig.from_dict(tools.get('trigger')))
+        # Older files lack trigger_active: a registered trigger starts active as before.
+        m.trigger.set_config(TriggerConfig.from_dict(tools.get('trigger')),
+                             tools.get('trigger_active', True) is not False)
         m.timeout_monitor.configure(tools.get('timeout'))
 
     def autosave(self):

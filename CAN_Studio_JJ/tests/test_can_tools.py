@@ -12,7 +12,7 @@ from unittest.mock import patch
 import can
 import cantools
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QHeaderView
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -559,18 +559,38 @@ class MainWindowToolsTest(unittest.TestCase):
         self.assertTrue(self.wait(lambda: (1, 0x100, 'Value') in self.main.signal_tree_items))
         item = self.main.signal_tree_items[(1, 0x100, 'Value')]
         self.main.trigger.directory = self.temp.name
+        # Value stretches with the window; the trigger column keeps its width.
+        header = self.main.tree.header()
+        self.assertEqual(header.sectionResizeMode(5), QHeaderView.Stretch)
+        self.assertEqual(header.sectionResizeMode(9), QHeaderView.Fixed)
+        self.assertEqual(item.text(9), '＋ 설정')         # clickable hint before a trigger exists
         self.main.trigger.set_config(TriggerConfig(1, 0x100, 'Speed', 'Value', '>', 5.0))
         self.assertTrue(item.text(9).startswith('> 5'))
         self.assertFalse(item.icon(9).isNull())
+        # Click cycle: active -> stop -> settings dialog (OK re-arms).
+        self.main.on_tree_clicked(item, 9)
+        self.assertFalse(self.main.trigger.active)
+        self.assertIn('정지', item.text(9))
+        self.main.trigger.feed(1.0, 1, 0x100, speed_payload(30), False, False, True)
+        self.assertEqual(self.main.trigger.fired, 0)       # stopped: no capture
+        with patch.object(self.main, 'edit_trigger') as edit:
+            self.main.on_tree_clicked(item, 9)
+        edit.assert_called_once_with(item)
+        self.assertFalse(self.main.session.capture()['tools']['trigger_active'])
+        self.main.set_trigger_active(True)
+        self.assertTrue(self.main.trigger.active)
         tools = self.main.session.capture()['tools']
         self.assertEqual(tools['trigger']['signal'], 'Value')
+        self.main.session.apply_tools(dict(tools, trigger_active=False))
+        self.assertFalse(self.main.trigger.active)
+        self.main.session.apply_tools(dict(tools))
         self.main.set_gateway([dict(enabled=True, src=1, dst=2, mode='all', ids='', remap='')], True)
         self.main.session.apply_tools(dict(tools, gateway_rules=self.main.gateway.rules))
         self.assertFalse(self.main.gateway.enabled)        # never auto-starts
         self.assertEqual(len(self.main.gateway.rules), 1)
         self.assertEqual(self.main.trigger.config.op, '>')
         self.main.clear_trigger()
-        self.assertEqual(item.text(9), '')
+        self.assertEqual(item.text(9), '＋ 설정')
 
 
 if __name__ == '__main__':

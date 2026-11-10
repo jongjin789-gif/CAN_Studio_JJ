@@ -179,15 +179,44 @@ class LogPanelDisplayTest(unittest.TestCase):
         self.assertTrue(self.sent[0].is_fd)
         self.assertTrue(self.sent[0].bitrate_switch)
 
-    def test_bus_fallback_uses_the_bus_that_actually_sent_the_frame(self):
+    def test_log_of_closed_bus_is_blocked_not_sent_to_another_bus(self):
         entry = self.log_entries()[0]
         entry['bus'] = 2
         view = self.viewer([entry])
         view.log_table.selectRow(0)
-        view.on_send_single_clicked()
-        self.wait_for(lambda: self.panel.widget_controls['state'].text() == 'ON')
-        self.assertIn((1, 0x130), self.panel.latest_raw_by_msg)
-        self.assertNotIn((2, 0x130), self.panel.latest_raw_by_msg)
+        with patch('src.log_viewer.QMessageBox.warning') as warning:
+            view.on_send_single_clicked()
+            view.start_sending()
+        self.assertEqual(warning.call_count, 2)
+        self.assertIn('BUS 2', warning.call_args[0][2])
+        self.assertFalse(view.is_sending)
+        self.assertFalse(view.btn_send.isChecked())
+        self.assertEqual(self.sent, [])
+
+    def test_fd_log_on_classic_bus_is_blocked(self):
+        entries = self.log_entries()
+        fd = dict(bus=1, can_id=0x230, offset_ms=100, type='FD', dlc=12, data=bytes(12))
+        view = self.viewer(entries + [fd])
+        with patch('src.log_viewer.QMessageBox.warning') as warning:
+            view.start_sending()
+        warning.assert_called_once()
+        self.assertIn('Classic', warning.call_args[0][2])
+        self.assertEqual(self.sent, [])     # whole replay blocked, not partially sent
+
+    def test_send_buttons_follow_bus_open_and_close(self):
+        bus = self.main.buses[1]
+        self.main.buses[1] = None
+        view = self.viewer(self.log_entries())
+        view.log_table.selectRow(0)
+        self.assertFalse(view.btn_send.isEnabled())
+        self.assertFalse(view.btn_send_single.isEnabled())
+        self.main.buses[1] = bus
+        self.main.bus_state_changed.emit(1)
+        self.assertTrue(view.btn_send.isEnabled())
+        self.assertTrue(view.btn_send_single.isEnabled())
+        self.main.buses[1] = None
+        self.main.bus_state_changed.emit(1)
+        self.assertFalse(view.btn_send.isEnabled())
 
     def test_send_failure_does_not_update_display(self):
         self.main.buses[1].send = Mock(side_effect=can.CanError('send failed'))

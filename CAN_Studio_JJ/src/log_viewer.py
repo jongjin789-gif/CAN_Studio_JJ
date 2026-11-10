@@ -36,7 +36,6 @@ class LogViewerWindow(QMainWindow):
         self._populate_chunk_size = 1000
         self._populate_progress = None
         self._is_closing = False
-        self._fallback_notice_buses = set()
         self._populating = False
         self._filtering = False
         self._filter_index = 0
@@ -71,6 +70,10 @@ class LogViewerWindow(QMainWindow):
         self.resize(800, 700)
         
         self.init_ui()
+        # Buttons follow BUS open/close even when the log was opened with every BUS closed.
+        bus_state_changed = getattr(main_window, 'bus_state_changed', None)
+        if bus_state_changed is not None:
+            bus_state_changed.connect(self._on_bus_state_changed)
         self.start_parsing()
 
     def init_ui(self):
@@ -206,6 +209,10 @@ class LogViewerWindow(QMainWindow):
         self.shortcut_copy.activated.connect(self.copy_selected_logs_to_clipboard)
 
         self.update_control_states()
+
+    def _on_bus_state_changed(self, _bus=None):
+        if not self._is_closing:
+            self.update_control_states()
 
     def update_control_states(self):
         any_bus_connected = False
@@ -588,25 +595,37 @@ class LogViewerWindow(QMainWindow):
             dest.writelines(output)
         return number
 
-    def _resolve_target_bus(self, original_bus_num):
-        """원본 버스가 미연결이면 현재 연결된 첫 번째 버스로 폴백합니다."""
-        bus_obj = self.main_window.buses.get(original_bus_num)
-        if bus_obj:
-            return original_bus_num, bus_obj
+    @staticmethod
+    def _entry_is_fd(entry):
+        msg_type = entry.get('type', '')
+        return 'F' in msg_type or 'B' in msg_type or 'E' in msg_type or entry.get('dlc', 0) > 8
 
-        connected_buses = [b for b, obj in self.main_window.buses.items() if obj is not None]
-        if not connected_buses:
-            return original_bus_num, None
+    def _send_block_reason(self, entries):
+        """Why ``entries`` cannot be sent, or None.
 
-        fallback_bus = connected_buses[0]
-        if original_bus_num not in self._fallback_notice_buses:
-            self._fallback_notice_buses.add(original_bus_num)
-            if self.main_window:
-                self.main_window.statusBar().showMessage(
-                    f"Bus {original_bus_num} 로그는 미연결 상태라 Bus {fallback_bus}로 전송합니다.",
-                    4000
-                )
-        return fallback_bus, self.main_window.buses.get(fallback_bus)
+        A log frame goes only to its own BUS: never to another BUS when its BUS is
+        closed, and never as CAN FD to a BUS opened as classic CAN.
+        """
+        buses = self.main_window.buses
+        capabilities = self.main_window.bus_capabilities
+        missing, classic = set(), set()
+        for entry in entries:
+            bus = entry.get('bus', 1)
+            if buses.get(bus) is None:
+                missing.add(bus)
+            elif self._entry_is_fd(entry) and not capabilities.get(bus, {}).get('is_fd', False):
+                classic.add(bus)
+        lines = []
+        if missing:
+            lines.append('· 장비가 연결되지 않은 BUS: ' + ', '.join(f'BUS {b}' for b in sorted(missing)))
+        if classic:
+            lines.append('· CAN FD 프레임이 있으나 Classic CAN으로 연결된 BUS: '
+                         + ', '.join(f'BUS {b}' for b in sorted(classic)))
+        if not lines:
+            return None
+        return ('로그의 BUS 연결 상태가 맞지 않아 전송할 수 없습니다.\n\n' + '\n'.join(lines)
+                + '\n\n로그와 같은 BUS 번호로 장비를 연결하고, CAN FD 로그는 FD로 연결하세요.\n'
+                  '필요하면 CAN 버스 필터로 보낼 BUS만 남긴 뒤 전송하세요.')
 
     def copy_selected_logs_to_clipboard(self):
         if self._filtering or self._populating:
@@ -658,9 +677,10 @@ class LogViewerWindow(QMainWindow):
             self.btn_send.setChecked(False)
             return
 
-        if not any(bus is not None for bus in self.main_window.buses.values()):
-            QMessageBox.warning(self, "전송 불가", "연결된 CAN 채널이 없습니다.")
+        reason = self._send_block_reason(self._send_logs)
+        if reason:
             self.btn_send.setChecked(False)
+            QMessageBox.warning(self, "전송 불가", reason)
             return
 
         self.is_sending = True
@@ -715,30 +735,20 @@ class LogViewerWindow(QMainWindow):
 
         try:
             log_entry = self.raw_log_data[selected_row]
-            original_bus_num = log_entry.get('bus', 1)
-            target_bus_num, bus_obj = self._resolve_target_bus(original_bus_num)
-
-            if not bus_obj:
-                QMessageBox.warning(self, "전송 불가", "연결된 CAN 채널이 없습니다.")
+            reason = self._send_block_reason([log_entry])
+            if reason:
+                QMessageBox.warning(self, "전송 불가", reason)
                 return
+            target_bus_num = log_entry.get('bus', 1)
+            bus_obj = self.main_window.buses[target_bus_num]
 
             for j in range(self.log_table.columnCount()):
                 item = self.log_table.item(selected_row, j)
                 if item: item.setBackground(QColor("#d4edda"))
             self.highlighted_row = selected_row
 
-            # Compatibility check
             msg_type = log_entry['type']
-            # BRS(Bit Rate Switch) 플래그가 있거나 DLC가 8을 초과하는 패킷은 FD 전용 기능으로 간주합니다.
-            is_incompatible = log_entry['dlc'] > 8 or 'B' in msg_type
-            bus_is_fd = self.main_window.bus_capabilities[target_bus_num].get('is_fd', False)
-            if is_incompatible and not bus_is_fd:
-                QMessageBox.warning(self, "전송 무시됨", f"Bus {target_bus_num}은(는) CAN FD를 지원하지 않아\n"
-                                                     f"선택된 FD 패킷(ID: {log_entry['can_id']:X})을 전송할 수 없습니다.")
-                self.clear_row_highlight(selected_row)
-                return
-
-            is_fd = 'F' in msg_type or 'B' in msg_type or 'E' in msg_type or log_entry['dlc'] > 8
+            is_fd = self._entry_is_fd(log_entry)
             is_brs = 'B' in msg_type
             msg = can.Message(arbitration_id=log_entry['can_id'], data=log_entry['data'], is_extended_id=log_entry.get('is_extended_id', log_entry['can_id'] > 0x7FF), is_fd=is_fd, bitrate_switch=is_brs)
             if not bus_schedule(self.main_window, target_bus_num).send_log(bus_obj, msg):
@@ -831,36 +841,29 @@ class LogViewerWindow(QMainWindow):
         except (ValueError, IndexError):
             pass
 
-        original_bus_num = current_log.get('bus', 1)
-        target_bus_num, bus_obj = self._resolve_target_bus(original_bus_num)
-        
-        should_send = True
-        if bus_obj:
-            msg_type = current_log['type']
-            # BRS(Bit Rate Switch) 플래그가 있거나 DLC가 8을 초과하는 패킷은 FD 전용 기능으로 간주합니다.
-            is_incompatible = current_log['dlc'] > 8 or 'B' in msg_type
-            
-            bus_is_fd = self.main_window.bus_capabilities[target_bus_num].get('is_fd', False)
-            if is_incompatible and not bus_is_fd:
-                should_send = False
-        else:
-            should_send = False
+        # The BUS set was checked at start; stop rather than send elsewhere if it changed.
+        reason = self._send_block_reason([current_log])
+        if reason:
+            self.stop_sending()
+            QMessageBox.warning(self, "전송 중지", reason)
+            return
+        target_bus_num = current_log.get('bus', 1)
+        bus_obj = self.main_window.buses[target_bus_num]
 
-        if should_send:
-            msg_type = current_log['type']
-            is_fd = 'F' in msg_type or 'B' in msg_type or 'E' in msg_type or current_log['dlc'] > 8
-            is_brs = 'B' in msg_type
-            msg = can.Message(arbitration_id=current_log['can_id'], data=current_log['data'], is_extended_id=current_log.get('is_extended_id', current_log['can_id'] > 0x7FF), is_fd=is_fd, bitrate_switch=is_brs)
-            try:
-                if not bus_schedule(self.main_window, target_bus_num).send_log(bus_obj, msg):
-                    self.send_timer.start(1)
-                    return  # Keep this row pending while periodic TX owns the bus.
-                if hasattr(self.main_window, 'record_tx_activity'):
-                    self.main_window.record_tx_activity(target_bus_num, current_log['can_id'], current_log['data'], is_fd,
-                                                        is_ext=msg.is_extended_id)
-            except Exception as e:
-                if self.main_window:
-                    self.main_window.statusBar().showMessage(f"Tx Error: {e}", 3000)
+        msg_type = current_log['type']
+        is_fd = self._entry_is_fd(current_log)
+        is_brs = 'B' in msg_type
+        msg = can.Message(arbitration_id=current_log['can_id'], data=current_log['data'], is_extended_id=current_log.get('is_extended_id', current_log['can_id'] > 0x7FF), is_fd=is_fd, bitrate_switch=is_brs)
+        try:
+            if not bus_schedule(self.main_window, target_bus_num).send_log(bus_obj, msg):
+                self.send_timer.start(1)
+                return  # Keep this row pending while periodic TX owns the bus.
+            if hasattr(self.main_window, 'record_tx_activity'):
+                self.main_window.record_tx_activity(target_bus_num, current_log['can_id'], current_log['data'], is_fd,
+                                                    is_ext=msg.is_extended_id)
+        except Exception as e:
+            if self.main_window:
+                self.main_window.statusBar().showMessage(f"Tx Error: {e}", 3000)
 
         self.current_send_index += 1
         if self.current_send_index < len(log_data):
