@@ -256,6 +256,18 @@ class LinuxCommandTest(unittest.TestCase):
             result = backend.run_subprocess(['ip', 'link'])
         self.assertEqual(result.returncode, 1)
 
+    def test_commands_run_with_english_messages_regardless_of_os_language(self):
+        from src.can_devices.device_socketcan import SocketCanBackend
+        backend = SocketCanBackend(None)
+        with patch.dict('os.environ', {'LANG': 'ko_KR.UTF-8', 'LC_ALL': 'ko_KR.UTF-8',
+                                       'LANGUAGE': 'ko', 'PATH': '/usr/bin'}), \
+                patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')) as run:
+            backend.run_subprocess(['ip', 'link'])
+        env = run.call_args.kwargs['env']
+        self.assertEqual((env['LC_ALL'], env['LANG']), ('C', 'C'))
+        self.assertNotIn('LANGUAGE', env)
+        self.assertEqual(env['PATH'], '/usr/bin')
+
     def test_sudo_ticket_is_tried_before_prompting(self):
         backend, calls = self.backend(run=lambda command: subprocess.CompletedProcess(
             command, 1 if command[0] != 'sudo' else 0, '', 'Operation not permitted'))

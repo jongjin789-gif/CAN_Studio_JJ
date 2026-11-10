@@ -32,7 +32,7 @@
 - **멀티 채널 모니터링**: 4개의 CAN 버스 채널을 동시에 연결하고 모니터링 가능.
 - **CAN FD 지원**: Classic CAN 뿐만 아니라 CAN FD(Flexible Data-rate) 통신 및 ISO/Non-ISO, Data Bitrate 설정 지원.
 - **CAN 송신 (Tx) 및 패킷 관리**: 송신 패킷을 생성하여 CAN/FD 프레임 전송 가능. DBC 심볼과 연동하여 물리 값을 입력하면 자동으로 Raw Data(HEX) 연산 처리. Cycle Time 지원, 단축키(스페이스바 단발 전송, Ctrl+C/V 복사 붙여넣기, Delete 삭제) 지원, `.xmt` 파일 저장/불러오기 지원.
-- **자동 상태 저장 및 복구**: 사용자 데이터 폴더의 통합 세션에 장치/속도, DB, 패킷, 그래프, 유저패널 구성을 저장합니다. Windows는 저장 당시 연결된 BUS를 재연결하고, Linux는 장치/속도만 복원한 뒤 BUS를 Close 상태로 시작합니다.
+- **자동 상태 저장 및 복구**: 실행 파일(소스 실행 시 프로젝트 폴더) 옆의 `session.pjjsettings` 통합 세션에 장치/속도, DB, 패킷, 그래프, 유저패널 구성을 저장합니다. Windows는 저장 당시 연결된 BUS를 재연결하고, Linux는 장치/속도만 복원한 뒤 BUS를 Close 상태로 시작합니다.
 - **데이터베이스(DBC/SYM) 연동**: `.dbc` 파일 및 PEAK `.sym` 파일(v5.0, v6.0)을 불러와 Raw CAN 데이터를 물리 값(Physical Value)으로 실시간 자동 변환. 메시지(부모) 체크박스를 통해 하위 시그널 일괄 선택/해제 기능 지원.
 - **실시간 그래프 렌더링**: Reset Zoom은 최근 30초, Auto Y는 현재 보이는 데이터, Fit All Data는 보관된 전체 구간을 표시합니다. 통합 그래프는 X축 범위를 공유합니다.
 - **데이터 로깅 (Record)**: 실시간으로 수신되는 메시지를 `.trc` (Trace) 파일 포맷으로 저장 기능 제공.
@@ -44,7 +44,7 @@
 
 ## ⚙️ 시스템 요구 사항 및 설치 (Installation)
 
-R013 자동 테스트는 **Python 3.13** 환경에서 수행합니다. 새 개발 환경도 Python 3.13을 기준으로 구성하세요.
+R013 자동 테스트는 **Python 3.13** 환경에서 수행합니다. 새 개발 환경도 Python 3.13을 기준으로 구성하세요. 최소 요구 버전은 **Python 3.10**입니다(pyqtgraph 0.14, cantools 41 요구 사항).
 
 ### 🪟 Windows 환경
 1. **사전 준비**: 사용하는 장치의 드라이버를 설치합니다. PCAN 장치는 PEAK-System PCAN 드라이버, Kvaser 장치는 [Kvaser Drivers for Windows](https://kvaser.com/download/)가 필요합니다. 드라이버 설치 후 장치를 연결하고 프로그램을 다시 실행하세요.
@@ -66,6 +66,28 @@ chmod +x install_linux.sh
 ./install_linux.sh
 ```
 *참고: 위 스크립트는 PCAN 드라이버 자체를 설치하지 않습니다. 실제 하드웨어(can0) 외에 가상 CAN(vcan0) 테스트도 가능합니다.*
+
+2. **지원 환경**
+   - **Ubuntu 22.04 이상 / Debian 12 이상** (Python 3.10 이상). Ubuntu 20.04(Python 3.8)는 설치 스크립트가 버전 확인 단계에서 중단합니다.
+   - 일반 PC(x86_64) 기준입니다. ARM 보드(라즈베리파이, Jetson 등)는 pip로 PyQt5가 설치되지 않을 수 있어 `sudo apt-get install python3-pyqt5` 등 별도 확인이 필요합니다.
+   - 설치 스크립트는 apt를 사용하는 배포판(Ubuntu/Debian 계열)만 지원합니다.
+
+3. **CAN 장치 드라이버**
+   - PCAN(`peak_usb`), Kvaser(`kvaser_usb`) 등은 리눅스 커널 기본 드라이버로 `can0`, `can1` …으로 인식되며, 프로그램에서 **SocketCAN**으로 선택합니다. `ip link show`로 인식 여부를 확인하세요.
+   - PEAK 홈페이지의 별도 리눅스 드라이버(chardev 방식)를 설치하면 `can0`이 나타나지 않습니다. 커널 기본 드라이버를 사용하세요.
+
+4. **권한**
+   - 프로그램은 일반 사용자로 실행합니다. CAN 연결 시 `ip link` 설정에 권한이 필요하면 프로그램 창에서 sudo 비밀번호를 묻습니다(터미널 입력 없음).
+   - 실행 계정이 **sudo를 사용할 수 있어야** 합니다(sudo 그룹 또는 sudoers 등록).
+   - 세션(`session.pjjsettings`)과 실행 플래그 파일(`CAN_Studio_JJ.pk`)은 실행 파일(소스 실행 시 프로젝트 폴더) 옆에 저장됩니다. `/opt` 등 쓰기 권한이 없는 위치에 두면 자동 저장이 실패하므로, 실행 계정이 쓸 수 있는 폴더에 두세요.
+
+5. **가상 CAN(vcan) 테스트**
+```bash
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan
+sudo ip link set vcan0 mtu 72   # CAN FD 프레임까지 테스트할 때만 필요
+sudo ip link set up vcan0
+```
 
 ---
 

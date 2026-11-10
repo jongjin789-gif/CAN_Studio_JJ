@@ -19,7 +19,7 @@ except ImportError:
 # =====================================================================
 # 소프트웨어 버전 설정 (빌드 시 생성되는 실행 파일명에 반영됩니다)
 # =====================================================================
-APP_VERSION = "R013"
+APP_VERSION = "R100"
 
 def _collect_hidden_imports():
     """
@@ -246,11 +246,15 @@ def build_executable():
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y can-utils iproute2 \
-    libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
-    libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xfixes0 \
-    libxkbcommon-x11-0 libqt5x11extras5 fonts-nanum libopengl0
+sudo apt-get install -y iproute2 can-utils \
+    libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+    libxcb-randr0 libxcb-render-util0 libxcb-xfixes0 libxcb-shape0 libxcb-xkb1 \
+    libxkbcommon-x11-0 libqt5x11extras5 libgl1 libegl1 libopengl0 fonts-nanum
 ```
+
+- `iproute2`(ip 명령)는 CAN 인터페이스 설정에 필수입니다. `can-utils`는 점검용(선택)입니다.
+- 화면 표시 라이브러리가 없으면 'qt.qpa.plugin' 오류로 창이 뜨지 않습니다. `fonts-nanum`이 없으면 한글이 네모(□)로 보입니다.
+- 이 실행 파일은 빌드한 PC보다 오래된 리눅스(glibc)에서는 실행되지 않을 수 있습니다. 대상 PC와 같거나 더 오래된 배포판에서 빌드하세요.
 
 ## 🚀 2. 실행 방법
 ```bash
@@ -259,8 +263,13 @@ chmod +x {app_prefix}_{APP_VERSION}_linux
 ```
 
 ## ⚠️ 3. (중요) 실제 CAN 하드웨어 사용 시
-일반 사용자로 프로그램을 실행하세요. 인터페이스 설정에 권한이 필요한 경우에만 앱에서 sudo 비밀번호를 묻습니다.
+일반 사용자로 프로그램을 실행하세요. 인터페이스 설정에 권한이 필요한 경우에만 앱 창에서 sudo 비밀번호를 묻습니다(터미널 입력 없음).
+실행 계정이 sudo를 사용할 수 있어야 합니다(sudo 그룹 또는 sudoers 등록).
 비밀번호는 현재 실행 중에만 사용하며 파일이나 로그에 저장하지 않습니다. CAN 세션은 이전 저장 상태와 관계없이 Close로 시작합니다.
+
+- CAN 장치: PCAN(peak_usb), Kvaser(kvaser_usb) 등은 커널 기본 드라이버로 `can0`, `can1` …으로 인식되며 **SocketCAN**으로 선택합니다. `ip link show`로 확인하세요. PEAK 홈페이지의 별도 드라이버(chardev 방식)를 설치하면 `can0`이 나타나지 않습니다.
+- 세션(`session.pjjsettings`)과 `{PK_FILE_NAME}`은 실행 파일 옆에 저장됩니다. 실행 계정이 쓸 수 있는 폴더에 두세요(`/opt` 등 쓰기 불가 위치에서는 자동 저장 실패).
+- 가상 CAN 테스트: `sudo modprobe vcan && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0` (CAN FD 테스트 시 up 전에 `sudo ip link set vcan0 mtu 72`).
 
 ## {APP_VERSION} 기능 및 사용 안내
 - User Panel: Add TX Tool → sequence → 명령 시퀀스 설정에서 CMD/RCV/DEL을 등록합니다.

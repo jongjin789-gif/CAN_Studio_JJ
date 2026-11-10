@@ -106,10 +106,19 @@ class SocketCanBackend(CanDeviceBackend):
                 return candidate
         return 'ip'
 
+    @staticmethod
+    def command_env():
+        """ip/sudo 출력을 영어로 고정합니다. 권한 오류·비밀번호 요청을 영어 문구로
+        판별하므로, 한글 등 다른 언어 환경에서도 sudo 입력 창이 정상적으로 뜨게 합니다."""
+        env = dict(os.environ)
+        env.pop('LANGUAGE', None)
+        env.update(LC_ALL='C', LANG='C')
+        return env
+
     def run_subprocess(self, command, **kwargs):
         try:
             return subprocess.run(command, capture_output=True, text=True,
-                                  timeout=self.CMD_TIMEOUT_S, **kwargs)
+                                  timeout=self.CMD_TIMEOUT_S, env=self.command_env(), **kwargs)
         except subprocess.TimeoutExpired:
             return subprocess.CompletedProcess(
                 command, 1, '', f'명령이 {self.CMD_TIMEOUT_S}초 안에 끝나지 않았습니다.')

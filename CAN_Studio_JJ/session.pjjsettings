@@ -1,5 +1,5 @@
 {
-  "format": "PCAN_VIEWER_SESSION",
+  "format": "CAN_Studio_JJ_SESSION",
   "version": 2,
   "databases": {
     "1": [],
@@ -21,61 +21,55 @@
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
       "data_bitrate": "Off",
-      "is_open": true
+      "is_open": false
     },
     "2": {
-      "backend": "kvaser",
+      "backend": "pcan",
       "device": {
-        "bustype": "kvaser",
-        "handle": 0,
-        "serial": 15037,
-        "dongle_channel": 1
+        "bustype": "pcan",
+        "handle": 81,
+        "device_id": 429330452,
+        "device_type": 5,
+        "controller_number": 0
       },
-      "channel": "Kvaser USBcan Light 4xHS (ch 0, S/N 15037, #1)",
+      "channel": "PCAN-USB FD (0x51) [FD]",
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
-      "data_bitrate": "N/A",
-      "is_open": true
+      "data_bitrate": "Off",
+      "is_open": false
     },
     "3": {
       "backend": "pcan",
-      "device": null,
-      "channel": "",
+      "device": {
+        "bustype": "pcan",
+        "handle": 81,
+        "device_id": 429330452,
+        "device_type": 5,
+        "controller_number": 0
+      },
+      "channel": "PCAN-USB FD (0x51) [FD]",
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
-      "data_bitrate": "N/A",
+      "data_bitrate": "Off",
       "is_open": false
     },
     "4": {
       "backend": "pcan",
-      "device": null,
-      "channel": "",
+      "device": {
+        "bustype": "pcan",
+        "handle": 81,
+        "device_id": 429330452,
+        "device_type": 5,
+        "controller_number": 0
+      },
+      "channel": "PCAN-USB FD (0x51) [FD]",
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
-      "data_bitrate": "N/A",
+      "data_bitrate": "Off",
       "is_open": false
     }
   },
-  "tx_packets": [
-    {
-      "bus": 1,
-      "id": 0,
-      "is_fd": false,
-      "is_brs": false,
-      "length": 3,
-      "data": [
-        85,
-        170,
-        85
-      ],
-      "cycle": 10,
-      "signal_counters": {},
-      "note": "",
-      "symbol": "N/A",
-      "count": 0,
-      "crc_type": "N/A"
-    }
-  ],
+  "tx_packets": [],
   "graphs": [],
   "panel": null,
   "ui": {
