@@ -808,7 +808,9 @@ class LogViewerWindow(QMainWindow):
         log_data = self._send_logs
         send_rows = getattr(self, '_send_rows', None)
         if send_rows is None or len(send_rows) != len(log_data):
-            send_rows = self._send_rows = [self.raw_log_data.index(entry) for entry in log_data]
+            # Entries are the same dict objects as raw_log_data; map by identity in O(n).
+            row_of = {id(entry): row for row, entry in enumerate(self.raw_log_data)}
+            send_rows = self._send_rows = [row_of.get(id(entry), -1) for entry in log_data]
 
         if self.current_send_index > 0:
             prev_log_index = self.current_send_index - 1
