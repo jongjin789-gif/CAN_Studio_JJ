@@ -12,6 +12,8 @@ from unittest.mock import patch
 import can
 import cantools
 
+from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QHeaderView
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -568,9 +570,13 @@ class MainWindowToolsTest(unittest.TestCase):
         self.assertTrue(item.text(9).startswith('> 5'))
         self.assertFalse(item.icon(9).isNull())
         # Click cycle: active -> stop -> settings dialog (OK re-arms).
+        title = self.main.tree.headerItem()
+        self.assertEqual(title.text(9), 'Trigger · 감시')
+        self.assertIn('Speed · Value', title.toolTip(9))
         self.main.on_tree_clicked(item, 9)
         self.assertFalse(self.main.trigger.active)
         self.assertIn('정지', item.text(9))
+        self.assertEqual(title.text(9), 'Trigger · 정지')
         self.main.trigger.feed(1.0, 1, 0x100, speed_payload(30), False, False, True)
         self.assertEqual(self.main.trigger.fired, 0)       # stopped: no capture
         with patch.object(self.main, 'edit_trigger') as edit:
@@ -591,6 +597,18 @@ class MainWindowToolsTest(unittest.TestCase):
         self.assertEqual(self.main.trigger.config.op, '>')
         self.main.clear_trigger()
         self.assertEqual(item.text(9), '＋ 설정')
+        self.assertEqual(title.text(9), 'Trigger')
+        self.main.trigger.set_config(TriggerConfig(1, 0x100, 'Speed', 'Value', '>', 5.0), False)
+        # Clearing the rows keeps the state visible on the title.
+        self.main.reset_tree_values(1)
+        self.assertEqual(title.text(9), 'Trigger · 정지')
+        # Clicking the trigger title does not sort.
+        self.main.show()
+        QApplication.processEvents()
+        for column in (2, 9):
+            QTest.mouseClick(header.viewport(), Qt.LeftButton,
+                             pos=QPoint(header.sectionViewportPosition(column) + 5, 5))
+        self.assertEqual(header.sortIndicatorSection(), 2)   # CAN ID sorts, Trigger does not
 
 
 if __name__ == '__main__':

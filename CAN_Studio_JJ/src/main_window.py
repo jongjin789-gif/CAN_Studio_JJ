@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QG
                              QComboBox, QPushButton, QListWidget, QListWidgetItem, QShortcut, QLineEdit,
                              QTreeWidget, QSplitter, QMessageBox, QFileDialog, QTreeWidgetItemIterator, QInputDialog,
                              QMenu, QHeaderView)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
-from PyQt5.QtGui import QFont, QIcon, QKeySequence, QBrush, QColor
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent
+from PyQt5.QtGui import QFont, QIcon, QKeySequence, QBrush, QColor, QPixmap, QPainter, QPen
 from src.utils import get_resource_path, ReceiveTreeWidgetItem
 from src.can_threads import CANReceiverThread
 from src.graph_realtime import SignalGraphWindow
@@ -60,6 +60,22 @@ TRIGGER_COLUMN = 9
 TRIGGER_COLUMN_WIDTH = 150
 TRIGGER_HINT_TEXT = '＋ 설정'
 TRIGGER_HINT_COLOR = QColor('#9aa7b0')
+# Header state: (label, dot color). No trigger keeps the plain trigger icon.
+TRIGGER_HEADER_STATES = {'active': ('Trigger · 감시', '#2e7d32'),
+                         'capturing': ('Trigger · 저장 중', '#c62828'),
+                         'stopped': ('Trigger · 정지', '#e0a100')}
+
+
+def _status_dot_icon(color, size=12):
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(QPen(QColor(color).darker(140), 1))
+    painter.setBrush(QColor(color))
+    painter.drawEllipse(1, 1, size - 2, size - 2)
+    painter.end()
+    return QIcon(pixmap)
 _PCAN_ERROR_TYPES = {1: '비트 오류', 2: '폼 오류', 4: '스터프 오류', 8: '기타(ACK/CRC) 오류'}
 
 
@@ -595,11 +611,11 @@ class UniversalCANMonitor(QMainWindow):
         header.setStretchLastSection(False)
         header.setSectionResizeMode(5, QHeaderView.Stretch)
         header.setSectionResizeMode(TRIGGER_COLUMN, QHeaderView.Fixed)
-        self.tree.headerItem().setIcon(TRIGGER_COLUMN, button_icon('trigger'))
-        self.tree.headerItem().setToolTip(
-            TRIGGER_COLUMN, '신호 행의 이 칸을 클릭(또는 우클릭 → 트리거 설정)하여 트리거를 등록합니다.\n'
-                            '등록 후 클릭: 감시 중 → 정지, 정지 상태 → 설정 창 (확인 시 다시 감시)\n'
-                            '조건이 참이 되면 앞뒤 1~2초의 모든 BUS 프레임을 Log 폴더에 TRC로 저장합니다. (1개만 등록)')
+        # The trigger header shows the trigger state (rows can be cleared); it never sorts.
+        header.viewport().installEventFilter(self)
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self.show_tree_header_menu)
+        self.refresh_trigger_header()
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_tree_menu)
         self.tree.itemClicked.connect(self.on_tree_clicked)
@@ -2085,7 +2101,71 @@ class UniversalCANMonitor(QMainWindow):
     def _update_trigger_bitrates(self):
         self.trigger.bitrates = {b: self.combo_bitrate[b].currentText() for b in BUS_IDS if self.buses[b]}
 
+    def _trigger_state(self):
+        if self.trigger.config is None:
+            return None
+        if not self.trigger.active:
+            return 'stopped'
+        return 'capturing' if self.trigger.capturing else 'active'
+
+    def refresh_trigger_header(self):
+        """Trigger column title: state text + colored dot, tooltip names the signal."""
+        header = self.tree.headerItem()
+        state = self._trigger_state()
+        usage = ('신호 행의 Trigger 칸 클릭: 트리거 설정 → 감시 중 클릭 시 정지 → 정지 상태 클릭 시 설정 창\n'
+                 '조건이 참이 되면 앞뒤 1~2초의 모든 BUS 프레임을 Log 폴더에 TRC로 저장합니다. (1개만 등록)\n'
+                 '이 제목을 우클릭하면 트리거 정지/감시/해제 메뉴가 열립니다.')
+        if state is None:
+            header.setText(TRIGGER_COLUMN, 'Trigger')
+            header.setIcon(TRIGGER_COLUMN, button_icon('trigger'))
+            header.setToolTip(TRIGGER_COLUMN, '등록된 트리거 없음\n\n' + usage)
+            return
+        text, color = TRIGGER_HEADER_STATES[state]
+        header.setText(TRIGGER_COLUMN, text)
+        header.setIcon(TRIGGER_COLUMN, _status_dot_icon(color))
+        config = self.trigger.config
+        id_text = f'0x{config.can_id:03X}' if config.can_id <= 0x7FF else f'0x{config.can_id:X}'
+        state_text = {'active': '감시 중', 'capturing': '저장 중', 'stopped': '정지'}[state]
+        header.setToolTip(TRIGGER_COLUMN,
+                          f'트리거 신호: BUS {config.bus} · {id_text} {config.message} · {config.signal}\n'
+                          f'조건: {config.describe()} · 앞 {config.pre_s:g}초 / 뒤 {config.post_s:g}초\n'
+                          f'상태: {state_text} · 발생 {self.trigger.fired}회 · 저장 {self.trigger.saved_files}건\n\n'
+                          + usage)
+
+    def eventFilter(self, obj, event):
+        # Clicking the trigger title must not sort the tree (or start a resize there).
+        tree = getattr(self, 'tree', None)
+        if (tree is not None and obj is tree.header().viewport()
+                and event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease,
+                                     QEvent.MouseButtonDblClick)
+                and event.button() == Qt.LeftButton
+                and tree.header().logicalIndexAt(event.pos()) == TRIGGER_COLUMN):
+            return True
+        return super().eventFilter(obj, event)
+
+    def show_tree_header_menu(self, pos):
+        header = self.tree.header()
+        if header.logicalIndexAt(pos) != TRIGGER_COLUMN:
+            return
+        menu = QMenu(self)
+        config = self.trigger.config
+        if config is None:
+            menu.addAction('등록된 트리거 없음').setEnabled(False)
+        else:
+            menu.addAction(button_icon('trigger'), f'트리거: {config.describe()}').setEnabled(False)
+            menu.addSeparator()
+            item = self.signal_tree_items.get(self._trigger_key())
+            if item is not None:
+                menu.addAction('트리거 설정…', lambda: self.edit_trigger(item))
+            if self.trigger.active:
+                menu.addAction('트리거 정지', lambda: self.set_trigger_active(False))
+            else:
+                menu.addAction('트리거 감시 시작', lambda: self.set_trigger_active(True))
+            menu.addAction('트리거 해제', self.clear_trigger)
+        menu.exec_(header.viewport().mapToGlobal(pos))
+
     def refresh_trigger_cell(self):
+        self.refresh_trigger_header()
         key = self._trigger_key()
         item = self.signal_tree_items.get(key) if key else None
         old = self._trigger_item

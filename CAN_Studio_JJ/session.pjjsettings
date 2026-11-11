@@ -31,14 +31,14 @@
       "device": {
         "bustype": "pcan",
         "handle": 81,
-        "device_id": 429330452,
+        "device_id": 255,
         "device_type": 5,
         "controller_number": 0
       },
-      "channel": "PCAN-USB FD (0x51) [FD]",
+      "channel": "PCAN-USB (0x51) ",
       "bitrate": "500 kBit/s",
       "fd_iso": "ISO",
-      "data_bitrate": "Off",
+      "data_bitrate": "N/A",
       "is_open": true
     },
     "2": {
@@ -90,21 +90,31 @@
   "tx_packets": [
     {
       "bus": 1,
-      "id": 0,
+      "id": 256,
       "is_fd": false,
       "is_brs": false,
-      "length": 5,
+      "length": 8,
       "data": [
-        85,
-        170,
-        85,
-        170,
-        85
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
       ],
-      "cycle": 10,
-      "signal_counters": {},
+      "cycle": 100,
+      "signal_counters": {
+        "B00_Alive_Counter": {
+          "mode": "up",
+          "min": 0,
+          "max": 15,
+          "step": 1
+        }
+      },
       "note": "",
-      "symbol": "N/A",
+      "symbol": "VCU_CTRL_MD_CMD",
       "count": 0,
       "crc_type": "N/A"
     }
@@ -117,17 +127,8 @@
   },
   "tools": {
     "gateway_rules": [],
-    "trigger": {
-      "bus": 1,
-      "can_id": 256,
-      "message": "VCU_CTRL_MD_CMD",
-      "signal": "B05_Emergency",
-      "op": ">",
-      "value": 55.0,
-      "pre_s": 2.0,
-      "post_s": 2.0
-    },
-    "trigger_active": true,
+    "trigger": null,
+    "trigger_active": false,
     "timeout": {
       "enabled": true,
       "factor": 3.0,
