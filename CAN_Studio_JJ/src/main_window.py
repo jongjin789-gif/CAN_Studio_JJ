@@ -914,7 +914,8 @@ class UniversalCANMonitor(QMainWindow):
         if not is_err:
             self.trigger.feed(ts, bus_num, can_id, data, is_ext, is_fd, is_rx)
         if not is_err:
-            self._graph_pending_frames[(bus_num, can_id, is_ext)] = (ts, bytes(data))
+            # Keep every frame between UI ticks so graphs are not decimated to the tick rate.
+            self._graph_pending_frames.setdefault((bus_num, can_id, is_ext), []).append((ts, bytes(data)))
             self.queue_panel_message(bus_num, can_id, data, ts)
         panel = getattr(self, "user_panel_window", None)
         if is_rx and not is_err and panel is not None and panel.isVisible():
@@ -1557,21 +1558,40 @@ class UniversalCANMonitor(QMainWindow):
 
     def update_bound_graphs(self):
         pending, self._graph_pending_frames = self._graph_pending_frames, {}
+        if not pending:
+            return
+        frames = None  # all pending frames in time order, built only when a graph needs them
+        decoded = {}   # (id(msg), frame index) -> decoded signals, shared by every graph
         for graph in self.active_graphs:
-            decoded = {}
+            wanted = {}  # frame key -> [graph signal key, ...]
             for key, binding in graph.signal_bindings.items():
-                frame = (binding['bus'], binding['id'], binding['extended'])
-                if frame not in pending:
-                    continue
-                ts, raw = pending[frame]
-                msg, signal = graph._bound_signals[key]
-                try:
-                    if id(msg) not in decoded:
-                        decoded[id(msg)] = msg.decode(raw, decode_choices=False)
-                    if signal.name in decoded[id(msg)]:
-                        graph.update_data(key, ts, decoded[id(msg)][signal.name], signal.unit or '')
-                except (ValueError, KeyError, cantools.database.errors.DecodeError):
-                    continue
+                frame_key = (binding['bus'], binding['id'], binding['extended'])
+                if frame_key in pending:
+                    wanted.setdefault(frame_key, []).append(key)
+            if not wanted:
+                continue
+            if frames is None:
+                frames = sorted(((ts, frame_key, raw) for frame_key, items in pending.items()
+                                 for ts, raw in items), key=lambda frame: frame[0])
+            graph.begin_batch()
+            try:
+                for index, (ts, frame_key, raw) in enumerate(frames):
+                    keys = wanted.get(frame_key)
+                    if not keys:
+                        continue
+                    for key in keys:
+                        msg, signal = graph._bound_signals[key]
+                        cache_key = (id(msg), index)
+                        try:
+                            values = decoded.get(cache_key)
+                            if values is None:
+                                values = decoded[cache_key] = msg.decode(raw, decode_choices=False)
+                            if signal.name in values:
+                                graph.update_data(key, ts, values[signal.name], signal.unit or '')
+                        except (ValueError, KeyError, cantools.database.errors.DecodeError):
+                            continue
+            finally:
+                graph.end_batch()
 
     def _load_sym_v6(self, file_path):
         """FormatVersion=6.0 심볼 파일을 읽어들이는 함수"""

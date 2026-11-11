@@ -134,6 +134,10 @@ class SignalGraphWindow(QWidget):
         self.chk_crosshair.toggled.connect(self.toggle_crosshair)
 
         self.curves = {}
+        # Batched redraw: between begin_batch()/end_batch() samples are appended but
+        # each curve is redrawn only once at end_batch().
+        self._batch_depth = 0
+        self._dirty_curves = set()
         self.curve_colors = {}
         self.curve_styles = {}
         self.times = {name: deque() for name in signal_names}
@@ -535,8 +539,37 @@ class SignalGraphWindow(QWidget):
                     if t_deque and t_deque[-1] == timestamp: v_deque[-1] = float(val)
                     else: t_deque.append(timestamp); v_deque.append(float(val))
                     while t_deque and (timestamp - t_deque[0]) > 180.0: t_deque.popleft(); v_deque.popleft()
-                    self.curves[y_name].setData(list(t_deque), list(v_deque))
+                    self._redraw_curve(y_name)
                 except Exception: pass
+
+    def _redraw_curve(self, name):
+        if self._batch_depth:
+            self._dirty_curves.add(name)
+            return
+        self.curves[name].setData(list(self.times[name]), list(self.values[name]))
+
+    def begin_batch(self):
+        """Defer curve redraws until the matching end_batch()."""
+        self._batch_depth += 1
+
+    def end_batch(self):
+        self._batch_depth = max(0, self._batch_depth - 1)
+        if self._batch_depth or not self._dirty_curves:
+            return
+        dirty, self._dirty_curves = self._dirty_curves, set()
+        for name in dirty:
+            if name in self.curves and name in self.times:
+                self.curves[name].setData(list(self.times[name]), list(self.values[name]))
+        self._follow_latest()
+
+    def _follow_latest(self):
+        # 오토스크롤 활성화 시 최근 30초 구간 유지
+        if self.btn_autoscroll.isChecked():
+            latest = self.get_latest_time()
+            if latest is not None:
+                self.plot_widget.setXRange(latest - self.time_span, latest, padding=0)
+        if self.chk_auto_y.isChecked():
+            self._apply_auto_y(True)
 
     def take_screenshot(self):
         is_sync = self.chk_sync.isChecked()
@@ -1147,15 +1180,10 @@ class SignalGraphWindow(QWidget):
             t_deque.popleft()
             v_deque.popleft()
 
-        self.curves[signal_name].setData(list(t_deque), list(v_deque))
-        
+        self._redraw_curve(signal_name)
+
         # --- Evaluate formulas ---
         self.evaluate_formulas(timestamp)
-        
-        # 오토스크롤 활성화 시 최근 30초 구간 유지
-        if self.btn_autoscroll.isChecked():
-            latest = self.get_latest_time()
-            if latest is not None:
-                self.plot_widget.setXRange(latest - self.time_span, latest, padding=0)
-        if self.chk_auto_y.isChecked():
-            self._apply_auto_y(True)
+
+        if not self._batch_depth:
+            self._follow_latest()

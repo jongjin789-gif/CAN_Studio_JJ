@@ -324,7 +324,7 @@ class GridTest(unittest.TestCase):
                 graph = main.active_graphs[-1]
                 self.assertEqual(graph.signal_names, ['B2:130:0:Value', 'B1:131:0:Value', 'B1:130:0:Value'])
                 self.assertIs(graph.main_window, main)
-                main._graph_pending_frames = {(2, 0x130, False): (1.0, bytes([88]))}
+                main._graph_pending_frames = {(2, 0x130, False): [(1.0, bytes([88]))]}
                 main.update_bound_graphs()
                 self.assertEqual(list(graph.values['B2:130:0:Value']), [88])
                 self.assertEqual(list(graph.values['B1:130:0:Value']), [])

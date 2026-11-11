@@ -1,0 +1,95 @@
+name: Build Linux
+
+# x86_64(데스크톱) + aarch64(라즈베리파이 64비트) 실행 파일을 하나의 통합 패키지(tar.gz)로 만듭니다.
+# 실행: GitHub > Actions > "Build Linux" > Run workflow, 또는 R로 시작하는 태그 push (예: R100)
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'R*'
+
+permissions:
+  contents: write   # 태그 빌드 시 Release 에 파일 첨부
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu 22.04(glibc 2.35)에서 빌드 → Ubuntu 22.04 / Debian 12 / Raspberry Pi OS Bookworm 이상에서 실행
+        runner: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: CAN_Studio_JJ
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 개발 PC와 같은 설치 스크립트 사용 (ARM은 시스템 PyQt5를 사용하도록 자동 분기)
+      - name: Install build environment
+        run: bash install_linux.sh
+
+      - name: Build executable
+        run: venv_linux/bin/python build_exe.py
+
+      - name: Smoke test (starts without import errors)
+        run: |
+          PKG=$(ls -d dist/*_linux | head -1)
+          set +e
+          QT_QPA_PLATFORM=offscreen timeout 20 "$PKG/run.sh"
+          code=$?
+          set -e
+          # 124 = 20초 동안 정상 실행 중이던 것을 timeout 으로 종료
+          if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
+            echo "실행 파일이 비정상 종료했습니다 (exit $code)"; exit 1
+          fi
+          # 스모크 테스트가 만든 실행 파일 복사본/세션은 패키지에서 제외
+          find "$PKG" -maxdepth 1 -type f -name '*_linux' -delete
+          rm -f "$PKG/session.pjjsettings"
+          rm -rf "$PKG/Log" "$PKG/log"
+
+      # 실행 권한을 보존하기 위해 tar 로 묶어 전달합니다(artifact zip 은 실행 권한이 사라짐)
+      - name: Pack partial build
+        run: tar -C dist -czf "partial_$(uname -m).tar.gz" "$(basename "$(ls -d dist/*_linux | head -1)")"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: partial-${{ matrix.runner }}
+          path: CAN_Studio_JJ/partial_*.tar.gz
+          retention-days: 1
+
+  package:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: partial-*
+          merge-multiple: true
+
+      # 두 CPU 빌드를 같은 폴더에 풀면 bin/x86_64 + bin/aarch64 가 합쳐집니다(공통 파일은 동일).
+      - name: Merge into one package
+        id: pkg
+        run: |
+          mkdir merged
+          for f in partial_*.tar.gz; do tar -C merged -xzf "$f"; done
+          NAME=$(ls merged | head -1)
+          ls -R "merged/$NAME/bin"
+          for arch in x86_64 aarch64; do
+            test -x "merged/$NAME/bin/$arch/$NAME" || { echo "$arch 실행 파일 누락"; exit 1; }
+          done
+          tar -C merged -czf "$NAME.tar.gz" "$NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.name }}
+          path: ${{ steps.pkg.outputs.name }}.tar.gz
+
+      # 태그 push 로 실행된 경우 GitHub Release 에도 첨부
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pkg.outputs.name }}.tar.gz

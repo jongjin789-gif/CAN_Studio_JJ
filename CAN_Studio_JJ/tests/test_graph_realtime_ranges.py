@@ -45,6 +45,36 @@ class RealtimeGraphRangeTest(unittest.TestCase):
         y_range = graph.plot_widget.getViewBox().viewRange()[1]
         self.assertGreaterEqual(y_range[1], 100)
 
+    def test_batch_defers_redraw_until_end(self):
+        graph = self.graph('signal', [])
+        graph.begin_batch()
+        for timestamp in range(1, 6):
+            graph.update_data('signal', timestamp, timestamp * 10)
+        self.assertEqual(len(graph.curves['signal'].getData()[0] or []), 0)
+        graph.end_batch()
+        self.assertEqual(list(graph.curves['signal'].getData()[1]), [10, 20, 30, 40, 50])
+
+    def test_bound_graph_receives_every_frame_between_ui_ticks(self):
+        from types import SimpleNamespace
+        from cantools.database.can import Message, Signal
+        from src.main_window import UniversalCANMonitor
+
+        signal = Signal('Value', start=0, length=8)
+        message = Message(frame_id=0x100, name='Msg', length=8, signals=[signal])
+        graph = self.graph('B1:100:0:Value', [])
+        graph.signal_bindings = {'B1:100:0:Value': {'bus': 1, 'id': 0x100, 'extended': False}}
+        graph._bound_signals = {'B1:100:0:Value': (message, signal)}
+        # Ten 10 ms frames inside one 50 ms+ UI tick, plus an unrelated ID.
+        frames = [(1.0 + i * 0.01, bytes([i, 0, 0, 0, 0, 0, 0, 0])) for i in range(10)]
+        host = SimpleNamespace(active_graphs=[graph], _graph_pending_frames={
+            (1, 0x100, False): frames, (1, 0x200, False): [(1.0, bytes(8))]})
+
+        UniversalCANMonitor.update_bound_graphs(host)
+
+        self.assertEqual(list(graph.values['B1:100:0:Value']), list(range(10)))
+        self.assertEqual(host._graph_pending_frames, {})
+        self.assertEqual(list(graph.curves['B1:100:0:Value'].getData()[1]), list(range(10)))
+
     def test_combined_reset_uses_common_recent_window_and_fit_all_is_separate(self):
         first = self.graph('first', [(0, 1), (50, 2), (90, 3)])
         second = self.graph('second', [(5, 10), (60, 20), (100, 30)])
