@@ -13,7 +13,7 @@ USER_PANEL_EDIT_PASSWORD_ENABLED = True
 USER_PANEL_EDIT_PASSWORD = "1234"
 USER_PANEL_COMMUNICATION_PASSWORD = "1234"
 # Last usable day (inclusive): YYYYMMDD integer encoded as 8 hex digits, without 0x.
-PROGRAM_EXPIRATION_DATE = "01354DA9"
+PROGRAM_EXPIRATION_DATE = "01354DA9" 
 
 
 def check_program_expiration(today=None):
