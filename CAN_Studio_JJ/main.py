@@ -6,7 +6,7 @@ import ctypes
 from datetime import date, datetime
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QColor, QFont, QPalette
 
 # User panel edit-mode password settings (modifiable by code)
 USER_PANEL_EDIT_PASSWORD_ENABLED = True
@@ -75,7 +75,13 @@ if __name__ == '__main__':
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
             
     app = QApplication(sys.argv)
-    app.setStyle("Fusion") 
+    app.setStyle("Fusion")
+    # Some Linux desktop themes (e.g. Raspberry Pi PiXtrix) report white tooltip
+    # text on Fusion's pale-yellow tooltip background, making tooltips unreadable.
+    palette = app.palette()
+    palette.setColor(QPalette.ToolTipBase, QColor("#ffffdc"))
+    palette.setColor(QPalette.ToolTipText, QColor("#000000"))
+    app.setPalette(palette)
     ui_font = app.font()
     ui_font.setFamily("Consolas")
     ui_font.setStyleHint(QFont.Monospace)

@@ -11,6 +11,18 @@ log/
 
 # App runtime state
 CAN_Studio_JJ/CAN_Studio_JJ.pk
+CAN_Studio_JJ/session.pjjsettings
+
+# Python virtual environments (install_linux.sh / install_windows.bat)
+**/venv_linux/
+**/venv_win/
+
+# Build packages (tar.gz made for Linux distribution)
+*.tar.gz
+
+# Personal editor settings at the repository root
+# (CAN_Studio_JJ/.vscode/settings.json is shared and stays tracked)
+/.vscode/
 
 # Local secrets and credentials
 .env

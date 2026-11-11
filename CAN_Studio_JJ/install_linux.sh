@@ -36,19 +36,45 @@ sudo apt-get install -y python3-venv iproute2 can-utils \
     libxcb-randr0 libxcb-render-util0 libxcb-xfixes0 libxcb-shape0 libxcb-xkb1 \
     libxkbcommon-x11-0 libqt5x11extras5 libgl1 libegl1 libopengl0 fonts-nanum
 
+# PyPI에는 x86_64 용 PyQt5 바이너리(wheel)만 있습니다. ARM(라즈베리파이 등)에서 pip로 설치하면
+# 소스 빌드를 시도하다 'specify a working qmake' 오류로 실패하므로, 시스템 패키지(apt)의
+# PyQt5/numpy를 설치하고 가상환경에서 이를 함께 사용(--system-site-packages)합니다.
+ARCH="$(uname -m)"
+USE_SYSTEM_PYQT=0
+if [ "$ARCH" != "x86_64" ]; then
+    USE_SYSTEM_PYQT=1
+    echo "=== ARM 계열($ARCH) 감지: 시스템 PyQt5/numpy 설치 ==="
+    sudo apt-get install -y python3-pyqt5 python3-numpy
+fi
+
 echo "=== 파이썬 가상환경(venv) 생성 ==="
 if [ -d "venv_linux" ]; then
     echo "기존 가상환경 폴더를 발견하여 삭제합니다..."
     rm -rf venv_linux
 fi
-python3 -m venv venv_linux
+if [ "$USE_SYSTEM_PYQT" = "1" ]; then
+    python3 -m venv --system-site-packages venv_linux
+else
+    python3 -m venv venv_linux
+fi
 
 # 가상환경 활성화
 source venv_linux/bin/activate
 
 echo "=== 파이썬 필수 라이브러리 설치 ==="
 pip install --upgrade pip
-pip install -r requirements.txt
+if [ "$USE_SYSTEM_PYQT" = "1" ]; then
+    # PyQt5는 apt로 설치된 시스템 패키지를 사용하므로 pip 설치 대상에서 제외합니다.
+    REQ_TMP="$(mktemp)"
+    grep -viE '^[[:space:]]*PyQt5([^-_a-zA-Z0-9]|$)' requirements.txt > "$REQ_TMP"
+    pip install -r "$REQ_TMP"
+    rm -f "$REQ_TMP"
+else
+    pip install -r requirements.txt
+fi
+
+echo "=== 설치 확인 ==="
+python3 -c "import PyQt5.QtCore, can, cantools, pyqtgraph; print('PyQt5', PyQt5.QtCore.PYQT_VERSION_STR, '/ python-can', can.__version__, '/ cantools', cantools.__version__, '/ pyqtgraph', pyqtgraph.__version__)"
 
 echo "========================================================================"
 echo "설치가 완료되었습니다!"
