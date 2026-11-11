@@ -57,26 +57,42 @@ Kvaser는 메인창 또는 유저패널의 **통신 설정 / DBC → CAN 방식 
 
 기존 `python-can` 패키지를 사용하므로 별도의 Python `canlib` 패키지나 CANlib SDK 설치는 필요하지 않습니다. EXE도 대상 PC에 Kvaser 드라이버가 필요하며, 기존 EXE에는 소스 수정이 반영되지 않으므로 재빌드하세요. Linux의 Kvaser 장치는 커널 드라이버로 노출되는 `canX`를 **SocketCAN**으로 선택합니다.
 
-### 🐧 Linux (Ubuntu/Debian) 환경
-소스 코드를 직접 실행하기 위한 개발 환경 설정 가이드입니다.
+### 🐧 Linux (Ubuntu/Debian/Raspberry Pi OS) 환경
+소스 코드를 직접 실행하거나 빌드하기 위한 개발 환경 설정 가이드입니다.
+
+**폴더 구조** (git clone 받은 위치 기준, 아래 예시는 `~/Desktop/Project/Git/`에 받은 경우)
+```
+~/Desktop/Project/Git/CAN_Studio_JJ/          ← 저장소 최상위 (.git, .github)
+└── CAN_Studio_JJ/                            ← 프로젝트 폴더 (모든 명령은 여기서 실행)
+    ├── main.py, build_exe.py, install_linux.sh, requirements.txt
+    ├── venv_linux/                           ← install_linux.sh 가 생성하는 가상환경
+    └── dist/                                 ← build_exe.py 가 생성하는 배포 폴더
+```
 
 1. **의존성 설치 스크립트 실행 (최초 1회)**
-   - 프로젝트 폴더에서 아래 스크립트를 실행하면, 개발에 필요한 시스템 패키지와 Python 라이브러리가 자동으로 설치되고 `venv_linux` 가상환경이 생성됩니다.
+   - 아래 스크립트를 실행하면 개발에 필요한 시스템 패키지와 Python 라이브러리가 설치되고 `venv_linux` 가상환경이 생성됩니다.
 ```bash
-# 스크립트에 실행 권한을 부여하고 실행합니다.
+# 저장소 받기 (처음 한 번)
+cd ~/Desktop/Project/Git
+git clone https://github.com/jongjin789-gif/CAN_Studio_JJ.git
+
+# 프로젝트 폴더로 이동 후 설치
+cd ~/Desktop/Project/Git/CAN_Studio_JJ/CAN_Studio_JJ
 chmod +x install_linux.sh
 ./install_linux.sh
 ```
-*참고: 위 스크립트는 PCAN 드라이버 자체를 설치하지 않습니다. 실제 하드웨어(can0) 외에 가상 CAN(vcan0) 테스트도 가능합니다.*
+*참고: 위 스크립트는 제조사 CAN 드라이버를 설치하지 않습니다. 실제 하드웨어(can0) 외에 가상 CAN(vcan0) 테스트도 가능합니다.*
 
 2. **지원 환경**
-   - **Ubuntu 22.04 이상 / Debian 12 이상** (Python 3.10 이상). Ubuntu 20.04(Python 3.8)는 설치 스크립트가 버전 확인 단계에서 중단합니다.
-   - 일반 PC(x86_64) 기준입니다. ARM 보드(라즈베리파이, Jetson 등)는 pip로 PyQt5가 설치되지 않을 수 있어 `sudo apt-get install python3-pyqt5` 등 별도 확인이 필요합니다.
+   - **Ubuntu 22.04 이상 / Debian 12 이상 / Raspberry Pi OS 64비트** (Python 3.10 이상). Ubuntu 20.04(Python 3.8)는 설치 스크립트가 버전 확인 단계에서 중단합니다.
+   - **x86_64(데스크톱 PC)와 aarch64(라즈베리파이 등 ARM 64비트)** 를 지원합니다. ARM 에서는 pip 용 PyQt5 바이너리가 없으므로 설치 스크립트가 자동으로 시스템 패키지(`python3-pyqt5`)를 설치하고 가상환경에서 함께 사용합니다(`--system-site-packages`).
    - 설치 스크립트는 apt를 사용하는 배포판(Ubuntu/Debian 계열)만 지원합니다.
 
-3. **CAN 장치 드라이버**
-   - PCAN(`peak_usb`), Kvaser(`kvaser_usb`) 등은 리눅스 커널 기본 드라이버로 `can0`, `can1` …으로 인식되며, 프로그램에서 **SocketCAN**으로 선택합니다. `ip link show`로 인식 여부를 확인하세요.
-   - PEAK 홈페이지의 별도 리눅스 드라이버(chardev 방식)를 설치하면 `can0`이 나타나지 않습니다. 커널 기본 드라이버를 사용하세요.
+3. **CAN 장치 드라이버 (SocketCAN 전용)**
+   - 리눅스에서는 **모든 CAN 장치를 SocketCAN으로만 사용**하며, 프로그램의 CAN 방식에도 SocketCAN만 표시됩니다. PCAN/Kvaser 등 **제조사 드라이버는 설치하지 않습니다.**
+   - PCAN-USB(`peak_usb`), candleLight(`gs_usb`), Kvaser(`kvaser_usb`)는 리눅스 커널 기본 드라이버로 `can0`, `can1` …으로 인식됩니다. `ip link show`로 인식 여부를 확인하세요.
+   - Ubuntu 는 이 커널 드라이버가 `linux-modules-extra-$(uname -r)` 패키지에 들어 있습니다. **Raspberry Pi OS 기본 커널에는 Kvaser USB 드라이버가 없어** 라즈베리파이에서는 PCAN-USB 또는 candleLight를 사용합니다.
+   - PEAK 홈페이지의 별도 리눅스 드라이버(chardev 방식)를 설치하면 `can0`이 나타나지 않습니다.
 
 4. **권한**
    - 프로그램은 일반 사용자로 실행합니다. CAN 연결 시 `ip link` 설정에 권한이 필요하면 프로그램 창에서 sudo 비밀번호를 묻습니다(터미널 입력 없음).
@@ -97,7 +113,15 @@ sudo ip link set up vcan0
 
 1. **프로그램 실행**:
    - Windows: 터미널에서 `venv_win\Scripts\activate` 입력 후 `python main.py` 실행
-   - Linux (가상 CAN): 터미널에서 `source venv_linux/bin/activate && python3 main.py` 실행
+   - Linux: 프로젝트 폴더에서 가상환경의 Python 으로 실행합니다(일반 사용자로, sudo 없이).
+     ```bash
+     cd ~/Desktop/Project/Git/CAN_Studio_JJ/CAN_Studio_JJ
+     venv_linux/bin/python main.py
+     # 또는 가상환경 활성화 후 실행
+     source venv_linux/bin/activate
+     python main.py
+     ```
+     VS Code 의 실행(▶) 버튼을 쓰려면 `Ctrl+Shift+P` → **Python: Select Interpreter** → `CAN_Studio_JJ/venv_linux/bin/python` 을 선택하세요. 시스템 Python(`/usr/bin/python`)으로 실행하면 `No module named 'can'` 오류가 납니다.
    - Linux (실제 CAN): 일반 사용자로 실행합니다. 인터페이스 설정에 권한이 필요하면 앱이 sudo 비밀번호를 묻고 해당 명령만 재시도합니다. sudo 인증 캐시가 살아 있으면 다시 묻지 않습니다. 입력한 비밀번호는 연속 명령(down/up)을 위해 최대 60초만 메모리에 두고 버리며, 파일이나 로그에는 저장하지 않습니다. 각 명령은 10초 안에 끝나지 않으면 중단됩니다.
 
 2. **상세 사용법**:
@@ -142,14 +166,54 @@ sudo ip link set up vcan0
    python build_exe.py
    ```
    
-   **Linux**:
+   **Linux** (프로젝트 폴더에서 가상환경의 Python 으로 실행):
    ```bash
-   source venv_linux/bin/activate
-   python build_exe.py
+   cd ~/Desktop/Project/Git/CAN_Studio_JJ/CAN_Studio_JJ
+   venv_linux/bin/python build_exe.py
+   # 또는: source venv_linux/bin/activate && python build_exe.py
    ```
+   - 빌드는 1~2분 걸립니다. 메모리가 적은 라즈베리파이(4GB)는 브라우저 등 다른 프로그램을 닫고 빌드하세요(메모리 부족 시 강제 종료됨).
 2. 빌드가 성공적으로 완료되면 프로젝트 폴더 내 `dist` 디렉토리 하위에 플랫폼별 배포 폴더가 생성됩니다.
    - Windows: `dist/CAN_Studio_JJ_R013_win/CAN_Studio_JJ_R013_win.exe`
-   - Linux: `dist/CAN_Studio_JJ_R013_linux/CAN_Studio_JJ_R013_linux` (리눅스용 README 파일 포함)
+   - Linux: x86_64 / aarch64 를 하나로 담는 **통합 패키지** 구조입니다. 빌드한 PC의 CPU용 실행 파일만 `bin/<CPU>/` 에 생성·갱신되며, 다른 CPU 폴더는 지우지 않습니다.
+     ```
+     CAN_Studio_JJ/dist/CAN_Studio_JJ_R100_linux/
+     ├── run.sh                       ← 실행 (CPU 자동 판별)
+     ├── install_runtime.sh           ← 받는 PC에서 최초 1회 실행 환경 설치
+     ├── README_Linux_실행_가이드.md    ← 받는 사람용 안내 (명령 예제 포함)
+     ├── CAN_Studio_JJ.pk, MANUAL.md, USER_PANEL_*.md
+     └── bin/
+         ├── aarch64/CAN_Studio_JJ_R100_linux   (라즈베리파이에서 빌드 시)
+         └── x86_64/CAN_Studio_JJ_R100_linux    (데스크톱에서 빌드 시)
+     ```
+     최상위의 `CAN_Studio_JJ_R100_linux` 실행 파일은 빌드 시 만들지 않고, `run.sh`/`install_runtime.sh` 를 처음 실행할 때 그 PC의 CPU에 맞는 것이 복사되어 생깁니다.
+
+   **Linux 빌드 결과 바로 실행해 보기**:
+   ```bash
+   cd ~/Desktop/Project/Git/CAN_Studio_JJ/CAN_Studio_JJ/dist/CAN_Studio_JJ_R100_linux
+   ./run.sh
+   ```
+
+   **Linux 배포 (소스 없이 다른 PC로)**:
+   ```bash
+   # 1) 배포 폴더를 압축 (프로젝트 폴더에서)
+   cd ~/Desktop/Project/Git/CAN_Studio_JJ/CAN_Studio_JJ/dist
+   tar czf CAN_Studio_JJ_R100_linux.tar.gz CAN_Studio_JJ_R100_linux
+
+   # 2) 받는 PC에서 (예: 홈 폴더 아래에 풀기)
+   mkdir -p ~/CAN_Studio
+   tar xzf CAN_Studio_JJ_R100_linux.tar.gz -C ~/CAN_Studio
+   cd ~/CAN_Studio/CAN_Studio_JJ_R100_linux
+   ./install_runtime.sh     # 최초 1회
+   ./run.sh                 # 실행
+   ```
+   - 받는 PC의 CPU(x86_64/aarch64)용 실행 파일이 `bin/` 에 있어야 합니다. 로컬 빌드는 빌드한 PC의 CPU용만 포함하므로, 두 CPU를 모두 담으려면 아래 GitHub Actions 빌드를 쓰거나 다른 PC에서 빌드한 `bin/<CPU>` 폴더를 복사해 넣으세요.
+   - 실행 파일은 빌드한 OS와 같거나 더 새 버전에서만 실행됩니다(glibc). 이 조건은 `run.sh` 가 확인해 안내합니다.
+
+   **Linux 통합 패키지 자동 빌드 (GitHub Actions)**:
+   - GitHub 저장소 → **Actions** → **Build Linux** → **Run workflow** 를 누르면 x86_64 와 aarch64 를 각각 빌드한 뒤 하나의 `CAN_Studio_JJ_R100_linux.tar.gz` 로 합쳐 줍니다(실행 화면 하단 Artifacts 에서 다운로드).
+   - `R` 로 시작하는 태그(예: `R100`)를 push 하면 같은 빌드를 수행하고 GitHub Release 에도 첨부합니다.
+   - Ubuntu 22.04 에서 빌드하므로 Ubuntu 22.04 / Debian 12 / Raspberry Pi OS Bookworm 이상에서 실행됩니다. 설정 파일: `.github/workflows/build-linux.yml`
 
 3. 새로 생성된 R013 배포 폴더의 실행 파일을 실행합니다. 이전 실행 파일은 소스 수정만으로 갱신되지 않습니다.
 4. 배포 폴더에는 `MANUAL.md`, `USER_PANEL_SEQUENCE.md`, `USER_PANEL_RELEASE_NOTES.md`와 OS별 실행 안내가 포함됩니다.
