@@ -20,6 +20,10 @@ CAN_Studio_JJ/session.pjjsettings
 # Build packages (tar.gz made for Linux distribution)
 *.tar.gz
 
+# Screenshots / images (program icons in icon/ are needed for the build and stay tracked)
+*.png
+!**/icon/*.png
+
 # Personal editor settings at the repository root
 # (CAN_Studio_JJ/.vscode/settings.json is shared and stays tracked)
 /.vscode/
