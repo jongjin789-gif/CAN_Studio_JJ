@@ -179,9 +179,10 @@ sudo ip link set up vcan0
      ```
      CAN_Studio_JJ/dist/CAN_Studio_JJ_R100_linux/
      ├── run.sh                       ← 실행 (CPU 자동 판별)
-     ├── install_runtime.sh           ← 받는 PC에서 최초 1회 실행 환경 설치
-     ├── README_Linux_실행_가이드.md    ← 받는 사람용 안내 (명령 예제 포함)
-     ├── CAN_Studio_JJ.pk, MANUAL.md, USER_PANEL_*.md
+     ├── install_runtime.sh           ← 받는 PC에서 최초 1회 실행 환경 설치 (한글 입력기 포함, --no-korean 으로 생략)
+     ├── install_runtime_en.sh        ← 영어판 (한글 입력기는 --korean 일 때만)
+     ├── README_Linux_Guide.md        ← 받는 사람용 안내 (영어판: README_Linux_Guide_en.md)
+     ├── CAN_Studio_JJ.pk, MANUAL.md, USER_PANEL_*.md  (영어판: *_en.md)
      └── bin/
          ├── aarch64/CAN_Studio_JJ_R100_linux   (라즈베리파이에서 빌드 시)
          └── x86_64/CAN_Studio_JJ_R100_linux    (데스크톱에서 빌드 시)

@@ -40,7 +40,7 @@ LINUX_RUNTIME_APT_PACKAGES = [
     "fontconfig", "fonts-nanum",
 ]
 
-# run.sh / install_runtime.sh 공통: 현재 PC의 CPU에 맞는 실행 파일을 bin/<CPU>/ 에서 골라
+# run.sh / install_runtime*.sh 공통: 현재 PC의 CPU에 맞는 실행 파일을 bin/<CPU>/ 에서 골라
 # 패키지 최상위 폴더로 복사합니다(세션/설정/로그가 최상위 폴더에 저장되도록).
 _SELECT_BINARY_SNIPPET = r'''EXE="__EXE__"
 HOST_ARCH="$(uname -m)"
@@ -68,6 +68,33 @@ if ! cmp -s "$SRC" "$EXE"; then
 fi
 '''
 
+# 영어판 설치 스크립트(install_runtime_en.sh)용 - 한글을 표시하지 못하는 터미널 대비
+_SELECT_BINARY_SNIPPET_EN = r'''EXE="__EXE__"
+HOST_ARCH="$(uname -m)"
+SRC="bin/$HOST_ARCH/$EXE"
+if [ ! -f "$SRC" ]; then
+    echo "[ERROR] This package has no executable for the CPU of this PC ($HOST_ARCH)."
+    echo "        CPUs included in this package: $(ls bin 2>/dev/null | tr '\n' ' ')"
+    exit 1
+fi
+BUILD_GLIBC=""; BUILD_OS=""
+if [ -f "bin/$HOST_ARCH/BUILD_INFO.txt" ]; then
+    . "bin/$HOST_ARCH/BUILD_INFO.txt"
+fi
+HOST_GLIBC="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}')"
+if [ -n "$BUILD_GLIBC" ] && [ -n "$HOST_GLIBC" ] &&
+   [ "$(printf '%s\n%s\n' "$BUILD_GLIBC" "$HOST_GLIBC" | sort -V | head -1)" != "$BUILD_GLIBC" ]; then
+    echo "[ERROR] The Linux on this PC is too old to run this program."
+    echo "        Required: glibc $BUILD_GLIBC or later (build OS: $BUILD_OS) / Current: glibc $HOST_GLIBC"
+    exit 1
+fi
+if ! cmp -s "$SRC" "$EXE"; then
+    cp -f "$SRC" "$EXE.tmp"
+    chmod +x "$EXE.tmp"
+    mv -f "$EXE.tmp" "$EXE"
+fi
+'''
+
 _RUN_SCRIPT_TEMPLATE = r'''#!/bin/bash
 # __EXE__ 실행 스크립트 - 이 PC의 CPU(x86_64 / aarch64)에 맞는 실행 파일을 자동으로 골라 실행합니다.
 #   사용법: ./run.sh
@@ -77,14 +104,29 @@ __SELECT__
 exec "./$EXE" "$@"
 '''
 
+# 한글판 설치 스크립트. 4/6 단계에서 한글 입력기(ibus-hangul)를 기본으로 설치합니다(--no-korean 으로 생략).
+# 실행 파일에 Qt ibus 입력 플러그인이 포함되어 있어 배포판/데스크톱과 관계없이 ibus 를 사용합니다.
 _RUNTIME_INSTALLER_TEMPLATE = r'''#!/bin/bash
 # __EXE__ 실행 환경 설치 스크립트 (PC당 최초 1회)
 # 소스 코드나 파이썬 없이, 이 패키지의 실행 파일을 쓰는 데 필요한 시스템 구성만 설치합니다.
-#   사용법: ./install_runtime.sh
+#   사용법: ./install_runtime.sh              (한글 글꼴 + 한글 입력기까지 설치)
+#           ./install_runtime.sh --no-korean  (한글 입력기 설치/설정 생략)
 set -e
 cd "$(dirname "$(readlink -f "$0")")"
 
-echo "=== 1/5 PC 확인 및 실행 파일 선택 ==="
+KOREAN_INPUT=1
+for arg in "$@"; do
+    case "$arg" in
+        --no-korean) KOREAN_INPUT=0 ;;
+        -h|--help)
+            echo "사용법: $0 [--no-korean]"
+            echo "  --no-korean   한글 입력기(ibus-hangul) 설치/설정을 건너뜁니다"
+            exit 0 ;;
+        *) echo "[오류] 알 수 없는 옵션: $arg  (도움말: $0 --help)"; exit 1 ;;
+    esac
+done
+
+echo "=== 1/6 PC 확인 및 실행 파일 선택 ==="
 __SELECT__
 if ! command -v apt-get > /dev/null 2>&1; then
     echo "[오류] apt-get 이 없습니다. Ubuntu/Debian 계열 리눅스에서 실행해 주세요."
@@ -102,11 +144,12 @@ fi
 echo "CPU: $HOST_ARCH / OS: $(. /etc/os-release && echo "$PRETTY_NAME") / glibc: ${HOST_GLIBC:-?}"
 echo "실행 파일: bin/$HOST_ARCH/$EXE -> ./$EXE"
 
-echo "=== 2/5 시스템 패키지 설치 (sudo 비밀번호가 필요할 수 있습니다) ==="
+echo "=== 2/6 시스템 패키지 설치 (sudo 비밀번호가 필요할 수 있습니다) ==="
 $SUDO apt-get update
 $SUDO apt-get install -y __PACKAGES__
+fc-cache -f > /dev/null 2>&1 || true
 
-echo "=== 3/5 CAN 커널 드라이버 확인 ==="
+echo "=== 3/6 CAN 커널 드라이버 확인 ==="
 # 모든 CAN 장치는 SocketCAN(can0~)으로 사용합니다. 제조사 드라이버는 설치하지 않습니다.
 # Ubuntu 는 USB-CAN / vcan 커널 모듈이 linux-modules-extra 패키지에 들어 있습니다.
 MISSING=0
@@ -134,10 +177,64 @@ if ! modinfo kvaser_usb > /dev/null 2>&1 && [ -f /etc/rpi-issue ]; then
     echo "         라즈베리파이에서는 PCAN-USB 또는 candleLight 장치를 사용하세요."
 fi
 
-echo "=== 4/5 실행 권한 설정 ==="
+echo "=== 4/6 한글 입력기 설치 (ibus-hangul) ==="
+# 프로그램(Qt)에 ibus 연동 모듈이 포함되어 있으므로, 배포판/데스크톱에 관계없이 ibus 를 사용합니다.
+# gsettings 목록 값에 항목을 추가합니다. (이미 있으면 그대로 둠)
+#   사용: gsettings_append <schema> <key> <추가 항목> <목록이 비어 있을 때 앞에 둘 기본 항목>
+gsettings_append() {
+    local cur new
+    cur="$(gsettings get "$1" "$2" 2>/dev/null)" || return 1
+    case "$cur" in *"$3"*) return 0 ;; esac
+    case "$cur" in
+        *"[]") new="[$4, $3]" ;;
+        *)     new="${cur%]}, $3]" ;;
+    esac
+    gsettings set "$1" "$2" "$new"
+}
+setup_korean_input() {
+    $SUDO apt-get install -y ibus ibus-hangul im-config || return 1
+    if [ -z "$SUDO" ]; then
+        echo "  [안내] root 로 실행 중이라 사용자별 입력기 설정은 건너뜁니다."
+        echo "         일반 사용자로 로그인한 뒤 'im-config -n ibus' 를 실행하고 재로그인하세요."
+        return 0
+    fi
+    # 로그인 시 ibus 를 기본 입력기로 사용 (~/.xinputrc, GTK/Qt/X11 공통)
+    im-config -n ibus || return 1
+    echo "  [OK]   기본 입력기: ibus"
+    if ! command -v gsettings > /dev/null 2>&1 || [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        echo "  [안내] 데스크톱 세션이 아니어서(SSH 등) 한글 엔진 등록은 건너뜁니다."
+        echo "         재로그인 후 'ibus-setup' → 입력기 → 추가 → 한국어 → Hangul 을 추가하세요."
+        return 0
+    fi
+    if echo "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then
+        # GNOME(Ubuntu 기본 데스크톱): 입력 소스에 '한국어(Hangul)' 추가, 오른쪽 Alt 를 한/영 키로 사용
+        gsettings_append org.gnome.desktop.input-sources sources "('ibus', 'hangul')" "('xkb', 'us')" &&
+            echo "  [OK]   GNOME 입력 소스에 한국어(Hangul) 추가"
+        gsettings_append org.gnome.desktop.input-sources xkb-options "'korean:ralt_hangul'" "'korean:rctrl_hanja'" &&
+            echo "  [OK]   오른쪽 Alt = 한/영 키"
+    else
+        # 그 외 데스크톱(Raspberry Pi OS, XFCE, KDE 등): ibus 엔진 목록에 Hangul 추가
+        gsettings_append org.freedesktop.ibus.general preload-engines "'hangul'" "'xkb:us::eng'" &&
+        gsettings_append org.freedesktop.ibus.general engines-order "'hangul'" "'xkb:us::eng'" &&
+            echo "  [OK]   ibus 엔진에 Hangul 추가"
+    fi
+    return 0
+}
+if [ "$KOREAN_INPUT" = "1" ]; then
+    if setup_korean_input; then
+        echo "  [안내] 재로그인(또는 재부팅) 후 한글 입력이 가능합니다."
+        echo "         한/영 전환: 한/영 키 또는 Shift+Space"
+    else
+        echo "[경고] 한글 입력기 설정 중 오류가 있었습니다. 프로그램 실행에는 영향이 없습니다."
+    fi
+else
+    echo "  (--no-korean: 건너뜀)"
+fi
+
+echo "=== 5/6 실행 권한 설정 ==="
 chmod +x run.sh "./$EXE"
 
-echo "=== 5/5 사용자 권한 확인 ==="
+echo "=== 6/6 사용자 권한 확인 ==="
 if [ -n "$SUDO" ] && ! id -nG | grep -qwE 'sudo|wheel|admin'; then
     echo "[주의] 현재 사용자($(id -un))가 sudo 그룹이 아닙니다."
     echo "       CAN 장치 속도 설정(ip link set) 시 프로그램이 sudo 비밀번호를 묻습니다."
@@ -151,7 +248,160 @@ echo "설치가 완료되었습니다. 아래 명령으로 실행하세요(일�
 echo "  ./run.sh"
 echo ""
 echo "CAN 장치 확인:  ip link show        (can0, can1 ... 이 보이면 정상)"
-echo "자세한 사용법:  README_Linux_실행_가이드.md"
+if [ "$KOREAN_INPUT" = "1" ]; then
+echo "한글 입력:      재로그인 후 한/영 키 또는 Shift+Space 로 전환"
+fi
+echo "자세한 사용법:  README_Linux_Guide.md"
+echo "========================================================================"
+'''
+
+# 영어판 설치 스크립트. 한글 입력기는 --korean 옵션을 줄 때만 설치합니다.
+_RUNTIME_INSTALLER_TEMPLATE_EN = r'''#!/bin/bash
+# __EXE__ runtime setup script (run once per PC)
+# Installs only the system components needed to run the executable in this package (no source code or Python required).
+#   Usage: ./install_runtime_en.sh           (runtime only)
+#          ./install_runtime_en.sh --korean  (also install and configure the Korean input method)
+set -e
+cd "$(dirname "$(readlink -f "$0")")"
+
+KOREAN_INPUT=0
+for arg in "$@"; do
+    case "$arg" in
+        --korean) KOREAN_INPUT=1 ;;
+        -h|--help)
+            echo "Usage: $0 [--korean]"
+            echo "  --korean   also install and configure the Korean input method (ibus-hangul)"
+            exit 0 ;;
+        *) echo "[ERROR] Unknown option: $arg  (help: $0 --help)"; exit 1 ;;
+    esac
+done
+
+echo "=== 1/6 Checking this PC and selecting the executable ==="
+__SELECT__
+if ! command -v apt-get > /dev/null 2>&1; then
+    echo "[ERROR] apt-get not found. Please run this on an Ubuntu/Debian-based Linux."
+    exit 1
+fi
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+    echo "[INFO] Running as root. Run the program itself as a normal user."
+elif command -v sudo > /dev/null 2>&1; then
+    SUDO="sudo"
+else
+    echo "[ERROR] sudo not found. As root, run 'apt-get install sudo' and add your user to the sudo group."
+    exit 1
+fi
+echo "CPU: $HOST_ARCH / OS: $(. /etc/os-release && echo "$PRETTY_NAME") / glibc: ${HOST_GLIBC:-?}"
+echo "Executable: bin/$HOST_ARCH/$EXE -> ./$EXE"
+
+echo "=== 2/6 Installing system packages (sudo password may be required) ==="
+$SUDO apt-get update
+$SUDO apt-get install -y __PACKAGES__
+fc-cache -f > /dev/null 2>&1 || true
+
+echo "=== 3/6 Checking CAN kernel drivers ==="
+# All CAN devices are used via SocketCAN (can0, ...). Vendor drivers are NOT installed.
+# On Ubuntu, the USB-CAN / vcan kernel modules are in the linux-modules-extra package.
+MISSING=0
+for m in vcan peak_usb kvaser_usb gs_usb; do
+    modinfo "$m" > /dev/null 2>&1 || MISSING=1
+done
+if [ "$MISSING" = "1" ]; then
+    EXTRA_PKG="linux-modules-extra-$(uname -r)"
+    if apt-cache show "$EXTRA_PKG" > /dev/null 2>&1; then
+        echo "Installing CAN driver package: $EXTRA_PKG"
+        $SUDO apt-get install -y "$EXTRA_PKG" || echo "[WARNING] Failed to install $EXTRA_PKG. Real CAN devices may not be detected."
+    fi
+fi
+for item in "can:SocketCAN core" "can_raw:SocketCAN core" "vcan:Virtual CAN" \
+            "peak_usb:PCAN-USB" "kvaser_usb:Kvaser USB" "gs_usb:candleLight"; do
+    m="${item%%:*}"; desc="${item#*:}"
+    if modinfo "$m" > /dev/null 2>&1; then
+        echo "  [OK]      $m ($desc)"
+    else
+        echo "  [MISSING] $m ($desc) - this kernel does not support the device via SocketCAN"
+    fi
+done
+if ! modinfo kvaser_usb > /dev/null 2>&1 && [ -f /etc/rpi-issue ]; then
+    echo "  [INFO] The default Raspberry Pi OS kernel does not include the Kvaser USB driver."
+    echo "         On a Raspberry Pi, use a PCAN-USB or candleLight device."
+fi
+
+echo "=== 4/6 Korean input method (ibus-hangul) ==="
+# The program (Qt) ships with the ibus input-context plugin, so ibus is used on any distro/desktop.
+# Appends an item to a gsettings list value (left unchanged if already present).
+#   Usage: gsettings_append <schema> <key> <item> <default item placed first when the list is empty>
+gsettings_append() {
+    local cur new
+    cur="$(gsettings get "$1" "$2" 2>/dev/null)" || return 1
+    case "$cur" in *"$3"*) return 0 ;; esac
+    case "$cur" in
+        *"[]") new="[$4, $3]" ;;
+        *)     new="${cur%]}, $3]" ;;
+    esac
+    gsettings set "$1" "$2" "$new"
+}
+setup_korean_input() {
+    $SUDO apt-get install -y ibus ibus-hangul im-config || return 1
+    if [ -z "$SUDO" ]; then
+        echo "  [INFO] Running as root, so per-user input method settings are skipped."
+        echo "         Log in as a normal user, run 'im-config -n ibus', then log out and back in."
+        return 0
+    fi
+    # Use ibus as the default input method at login (~/.xinputrc; applies to GTK/Qt/X11)
+    im-config -n ibus || return 1
+    echo "  [OK]   Default input method: ibus"
+    if ! command -v gsettings > /dev/null 2>&1 || [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        echo "  [INFO] Not in a desktop session (e.g. SSH), so the Hangul engine was not registered."
+        echo "         After re-login, run 'ibus-setup' -> Input Method -> Add -> Korean -> Hangul."
+        return 0
+    fi
+    if echo "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then
+        # GNOME (Ubuntu default desktop): add Korean (Hangul) input source, use Right Alt as the Han/Eng key
+        gsettings_append org.gnome.desktop.input-sources sources "('ibus', 'hangul')" "('xkb', 'us')" &&
+            echo "  [OK]   Added Korean (Hangul) to GNOME input sources"
+        gsettings_append org.gnome.desktop.input-sources xkb-options "'korean:ralt_hangul'" "'korean:rctrl_hanja'" &&
+            echo "  [OK]   Right Alt = Han/Eng key"
+    else
+        # Other desktops (Raspberry Pi OS, XFCE, KDE, ...): add Hangul to the ibus engine list
+        gsettings_append org.freedesktop.ibus.general preload-engines "'hangul'" "'xkb:us::eng'" &&
+        gsettings_append org.freedesktop.ibus.general engines-order "'hangul'" "'xkb:us::eng'" &&
+            echo "  [OK]   Added Hangul to ibus engines"
+    fi
+    return 0
+}
+if [ "$KOREAN_INPUT" = "1" ]; then
+    if setup_korean_input; then
+        echo "  [INFO] Korean input is available after logging out and back in (or rebooting)."
+        echo "         Toggle Korean/English: Han/Eng key or Shift+Space"
+    else
+        echo "[WARNING] An error occurred while setting up Korean input. This does not affect running the program."
+    fi
+else
+    echo "  (skipped - use --korean to enable)"
+fi
+
+echo "=== 5/6 Setting execute permissions ==="
+chmod +x run.sh "./$EXE"
+
+echo "=== 6/6 Checking user permissions ==="
+if [ -n "$SUDO" ] && ! id -nG | grep -qwE 'sudo|wheel|admin'; then
+    echo "[NOTE] The current user ($(id -un)) is not in the sudo group."
+    echo "       The program will ask for a sudo password when setting the CAN bitrate (ip link set)."
+    echo "       Ask your administrator to run: sudo usermod -aG sudo $(id -un)  (log in again to apply)"
+else
+    echo "  [OK]   sudo available"
+fi
+
+echo "========================================================================"
+echo "Setup complete. Start the program with the command below (as a normal user, without sudo):"
+echo "  ./run.sh"
+echo ""
+echo "Check CAN devices:  ip link show        (OK if can0, can1 ... are listed)"
+if [ "$KOREAN_INPUT" = "1" ]; then
+echo "Korean input:       after re-login, toggle with the Han/Eng key or Shift+Space"
+fi
+echo "Detailed guide:     README_Linux_Guide_en.md"
 echo "========================================================================"
 '''
 
@@ -189,7 +439,7 @@ def _write_linux_package_files(dist_path, exe_dist_path, exe_name):
     """통합 리눅스 패키지 파일을 생성합니다.
 
     dist_path/
-      run.sh, install_runtime.sh       CPU 자동 판별 (공통)
+      run.sh, install_runtime(_en).sh  CPU 자동 판별 (공통)
       bin/<CPU>/<exe>, BUILD_INFO.txt  이번 빌드의 CPU용 실행 파일
     다른 CPU에서 빌드한 bin/<CPU>/ 폴더를 같은 bin/ 아래로 복사하면 하나의 패키지로 합쳐집니다.
     """
@@ -201,11 +451,15 @@ def _write_linux_package_files(dist_path, exe_dist_path, exe_name):
     select = _SELECT_BINARY_SNIPPET.replace('__EXE__', exe_name)
     _write_script(os.path.join(dist_path, 'run.sh'),
                   _RUN_SCRIPT_TEMPLATE.replace('__SELECT__', select).replace('__EXE__', exe_name))
-    _write_script(os.path.join(dist_path, 'install_runtime.sh'),
-                  _RUNTIME_INSTALLER_TEMPLATE
-                  .replace('__SELECT__', select)
-                  .replace('__EXE__', exe_name)
-                  .replace('__PACKAGES__', _apt_package_lines()))
+    select_en = _SELECT_BINARY_SNIPPET_EN.replace('__EXE__', exe_name)
+    for script_name, template, snippet in (
+            ('install_runtime.sh', _RUNTIME_INSTALLER_TEMPLATE, select),
+            ('install_runtime_en.sh', _RUNTIME_INSTALLER_TEMPLATE_EN, select_en)):
+        _write_script(os.path.join(dist_path, script_name),
+                      template
+                      .replace('__SELECT__', snippet)
+                      .replace('__EXE__', exe_name)
+                      .replace('__PACKAGES__', _apt_package_lines()))
 
     # 이전 구조(실행 파일이 최상위에 바로 있던 빌드)의 남은 파일 정리
     stale = os.path.join(dist_path, exe_name)
@@ -214,7 +468,7 @@ def _write_linux_package_files(dist_path, exe_dist_path, exe_name):
 
     archs = sorted(d for d in os.listdir(os.path.join(dist_path, 'bin'))
                    if os.path.isfile(os.path.join(dist_path, 'bin', d, exe_name)))
-    print(f"[안내] run.sh / install_runtime.sh 생성. 패키지에 포함된 CPU: {', '.join(archs)}")
+    print(f"[안내] run.sh / install_runtime.sh / install_runtime_en.sh 생성. 패키지에 포함된 CPU: {', '.join(archs)}")
     print(f"       (다른 CPU용을 합치려면 그 PC에서 빌드한 bin/<CPU> 폴더를 {os.path.join(dist_path, 'bin')} 아래에 복사)")
     return info
 
@@ -436,7 +690,8 @@ def build_executable():
     print(f"[안내] {PK_FILE_NAME} 파일이 배포 폴더에 생성되었습니다.")
 
     # 배포 파일과 함께 최신 사용법 및 변경 내역 제공
-    for document in ('MANUAL.md', 'USER_PANEL_SEQUENCE.md', 'USER_PANEL_RELEASE_NOTES.md'):
+    for document in ('MANUAL.md', 'USER_PANEL_SEQUENCE.md', 'USER_PANEL_RELEASE_NOTES.md',
+                     'MANUAL_en.md', 'USER_PANEL_SEQUENCE_en.md', 'USER_PANEL_RELEASE_NOTES_en.md'):
         document_path = os.path.join(current_dir, document)
         if os.path.exists(document_path):
             shutil.copy2(document_path, os.path.join(dist_path, document))
@@ -460,8 +715,11 @@ def build_executable():
         _write_linux_package_files(dist_path, exe_dist_path, exe_name)
         apt_packages = _apt_package_lines()
         pkg_name = os.path.basename(dist_path)
-        readme_path = os.path.join(dist_path, 'README_Linux_실행_가이드.md')
-        readme_content = f"""# {app_prefix.replace('_', ' ')} {APP_VERSION} - 리눅스 실행 가이드
+        # 파일명은 영문으로 만듭니다(한글을 지원하지 않는 리눅스에서 파일명이 깨지지 않도록).
+        stale_readme = os.path.join(dist_path, 'README_Linux_실행_가이드.md')
+        if os.path.isfile(stale_readme):
+            os.remove(stale_readme)
+        readme_ko = f"""# {app_prefix.replace('_', ' ')} {APP_VERSION} - 리눅스 실행 가이드
 
 이 패키지는 **파이썬·소스 코드 없이** 바로 실행되는 리눅스용 프로그램입니다.
 **데스크톱 PC(x86_64)와 라즈베리파이(aarch64, 64비트)용 실행 파일이 함께 들어 있고**, PC의 CPU에 맞는 것을 자동으로 골라 실행합니다.
@@ -480,8 +738,9 @@ def build_executable():
 | `bin/x86_64/`, `bin/aarch64/` | CPU별 실행 파일과 빌드 정보(`BUILD_INFO.txt`) |
 | `{exe_name}` | 이 PC용으로 선택된 실행 파일 (설치/실행 시 자동 생성) |
 | `{PK_FILE_NAME}` | 실행 모드 설정 파일 (지우지 마세요) |
-| `README_Linux_실행_가이드.md` | 이 문서 |
+| `README_Linux_Guide.md` | 이 문서 |
 | `MANUAL.md`, `USER_PANEL_*.md` | 상세 사용법 / 변경 내역 |
+| `*_en.md`, `install_runtime_en.sh` | 영어 버전 |
 
 세션(`session.pjjsettings`)과 로그는 이 폴더(최상위)에 저장됩니다.
 
@@ -515,15 +774,17 @@ ls
 ## 🛠️ 3. 실행 환경 설치 (PC당 최초 1회)
 
 ```bash
-./install_runtime.sh
+./install_runtime.sh               # 한글 입력기까지 설치 (기본)
+./install_runtime.sh --no-korean   # 한글 입력기 설치/설정 생략
 ```
 
 스크립트가 하는 일:
 1. CPU / OS(glibc) 확인 후 이 PC용 실행 파일 선택 (`bin/<CPU>/` → 최상위 폴더로 복사)
 2. 시스템 패키지 설치 — 화면 표시 라이브러리(X11/Wayland/OpenGL), 한글 글꼴, `ip`·`candump` 등 CAN 도구
 3. CAN 커널 드라이버 확인 — Ubuntu는 USB-CAN 드라이버가 든 `linux-modules-extra-<커널버전>` 자동 설치
-4. 실행 권한 설정
-5. 현재 사용자의 sudo 사용 가능 여부 확인
+4. 한글 입력기 설치·설정 (`ibus`, `ibus-hangul`) — `--no-korean` 이면 생략
+5. 실행 권한 설정
+6. 현재 사용자의 sudo 사용 가능 여부 확인
 
 <details>
 <summary>스크립트 없이 직접 설치하려면</summary>
@@ -535,6 +796,22 @@ sudo apt-get install -y {apt_packages}
 sudo apt-get install -y linux-modules-extra-$(uname -r)
 ```
 </details>
+
+### ⌨️ 한글 입력
+
+`install_runtime.sh` 실행 후 **로그아웃 → 다시 로그인(또는 재부팅)** 하면 프로그램에서 한글을 입력할 수 있습니다.
+
+- 한/영 전환: **한/영 키** 또는 **Shift+Space** (GNOME 에서는 오른쪽 Alt 도 한/영 키로 동작)
+- 프로그램에 Qt ibus 연동 모듈이 포함되어 있어 Ubuntu / Debian / Raspberry Pi OS 모두 같은 `ibus` 설정을 사용합니다.
+
+직접 설정하려면:
+
+```bash
+sudo apt-get install -y ibus ibus-hangul im-config
+im-config -n ibus        # 일반 사용자로 실행(sudo 없이) 후 재로그인
+ibus-setup               # 입력기 → 추가 → 한국어 → Hangul
+# GNOME(Ubuntu): 설정 → 키보드 → 입력 소스 → + → 한국어(Hangul)
+```
 
 ## 🚀 4. 실행
 
@@ -619,6 +896,7 @@ candump vcan0                    # 프로그램이 보낸 프레임 확인
 | `Permission denied` | `chmod +x run.sh install_runtime.sh` |
 | `qt.qpa.plugin: Could not load the Qt platform plugin` | `./install_runtime.sh` 를 다시 실행하세요. 그래도 안 되면 `QT_QPA_PLATFORM=xcb ./run.sh` |
 | 한글이 네모(□)로 보임 | `sudo apt-get install -y fonts-nanum && fc-cache -f` |
+| 한글 입력이 안 됨 | `./install_runtime.sh` 실행 후 재로그인했는지 확인. `pgrep ibus-daemon` 으로 ibus 실행 여부, `ibus-setup` 에 Hangul 추가 여부 확인. 필요하면 `QT_IM_MODULE=ibus ./run.sh` |
 | `ip link show` 에 `can0` 이 없음 | 장치 재연결 → `dmesg` 끝부분에서 드라이버 메시지 확인. Ubuntu는 `sudo apt-get install linux-modules-extra-$(uname -r)` 후 재부팅. |
 | CAN Open 시 권한 오류 | 실행 계정이 sudo 그룹인지 확인: `groups`. 아니면 관리자가 `sudo usermod -aG sudo <계정>` 후 재로그인. |
 | 설정이 저장되지 않음 | 프로그램 폴더에 쓰기 권한이 있는지 확인: `ls -ld .` (홈 폴더 아래로 옮기세요). |
@@ -644,8 +922,212 @@ candump vcan0                    # 프로그램이 보낸 프레임 확인
 - 상세 사용법: MANUAL.md / USER_PANEL_SEQUENCE.md / USER_PANEL_RELEASE_NOTES.md.
 - Consolas가 없거나 지원하지 않는 문자는 시스템 대체 글꼴로 표시됩니다.
 """
-        with open(readme_path, 'w', encoding='utf-8') as f:
-            f.write(readme_content)
+        readme_en = f"""# {app_prefix.replace('_', ' ')} {APP_VERSION} - Linux Run Guide
+
+This package is a Linux program that runs directly **without Python or source code**.
+**It contains executables for desktop PCs (x86_64) and Raspberry Pi (aarch64, 64-bit)**, and automatically selects the one that matches the PC's CPU.
+
+```bash
+./install_runtime_en.sh   # once (install the runtime environment)
+./run.sh                  # run
+```
+
+## 📁 0. Package Contents
+
+| File | Description |
+|---|---|
+| `run.sh` | **Run** — detects the CPU automatically and starts the program |
+| `install_runtime_en.sh` | **Runtime setup** (once per PC). Korean version: `install_runtime.sh` |
+| `bin/x86_64/`, `bin/aarch64/` | Executables and build info (`BUILD_INFO.txt`) per CPU |
+| `{exe_name}` | Executable selected for this PC (created automatically on setup/run) |
+| `{PK_FILE_NAME}` | Run mode settings file (do not delete) |
+| `README_Linux_Guide_en.md` | This document (Korean version: `README_Linux_Guide.md`) |
+| `MANUAL_en.md`, `USER_PANEL_*_en.md` | Detailed usage / change history (Korean versions: files without `_en`) |
+
+The session (`session.pjjsettings`) and logs are saved in this (top-level) folder.
+
+## ✅ 1. Check Supported Environment
+
+```bash
+uname -m                  # x86_64 (desktop) or aarch64 (Raspberry Pi 64-bit)
+ls bin                    # list of CPUs included in the package
+cat bin/*/BUILD_INFO.txt  # build OS / required glibc version per CPU
+getconf GNU_LIBC_VERSION  # glibc version of this PC (must be BUILD_GLIBC or later)
+```
+
+- Distributions **that use apt**, such as Ubuntu / Debian / Raspberry Pi OS, are supported.
+- 32-bit Raspberry Pi OS (`armv7l`) is not supported.
+- If the CPU or OS version does not match, `run.sh` / `install_runtime_en.sh` tells you why and stops.
+
+## 📦 2. Extract the Archive
+
+Extract to a location where you have write permission (e.g. your home folder).
+
+```bash
+mkdir -p ~/CAN_Studio
+tar xzf ~/Downloads/{pkg_name}.tar.gz -C ~/CAN_Studio
+cd ~/CAN_Studio/{pkg_name}
+ls
+```
+
+> If you put it where normal users cannot write, such as `/opt` or `/usr`, automatic session saving will fail.
+> If you copied the folder via USB etc. instead of extracting the archive, run `chmod +x run.sh install_runtime_en.sh` first.
+
+## 🛠️ 3. Runtime Setup (once per PC)
+
+```bash
+./install_runtime_en.sh            # runtime only
+./install_runtime_en.sh --korean   # also set up Korean keyboard input
+```
+
+What the script does:
+1. Checks CPU / OS (glibc) and selects the executable for this PC (copies `bin/<CPU>/` → top-level folder)
+2. Installs system packages — display libraries (X11/Wayland/OpenGL), Korean fonts, CAN tools such as `ip` and `candump`
+3. Checks CAN kernel drivers — on Ubuntu, automatically installs `linux-modules-extra-<kernel version>`, which contains the USB-CAN drivers
+4. (Only with `--korean`) Installs and configures the Korean input method (`ibus`, `ibus-hangul`)
+5. Sets execute permissions
+6. Checks whether the current user can use sudo
+
+<details>
+<summary>To install manually without the script</summary>
+
+```bash
+sudo apt-get update
+sudo apt-get install -y {apt_packages}
+# When using a real USB-CAN device on Ubuntu
+sudo apt-get install -y linux-modules-extra-$(uname -r)
+```
+</details>
+
+### ⌨️ Korean input (optional)
+
+Korean text is **displayed** without any extra setup (the `fonts-nanum` font is always installed). To **type** Korean in the program, run `./install_runtime_en.sh --korean`, then log out and back in (or reboot).
+
+- Toggle Korean/English: **Han/Eng key** or **Shift+Space** (on GNOME, Right Alt also works as the Han/Eng key).
+- The program includes the Qt ibus plugin, so the same `ibus` setup works on Ubuntu, Debian, and Raspberry Pi OS.
+
+To set it up manually:
+
+```bash
+sudo apt-get install -y ibus ibus-hangul im-config
+im-config -n ibus        # run as a normal user (not sudo), then log out and back in
+ibus-setup               # Input Method → Add → Korean → Hangul
+# GNOME (Ubuntu): Settings → Keyboard → Input Sources → + → Korean (Hangul)
+```
+
+## 🚀 4. Run
+
+```bash
+./run.sh
+```
+
+- **Run as a normal user (without sudo).** For tasks that need privileges, such as setting the CAN bitrate, the program asks for the sudo password in its window.
+- After running once, you can also start `./{exe_name}` directly.
+- To keep it running after closing the terminal:
+  ```bash
+  nohup ./run.sh > /dev/null 2>&1 &
+  ```
+
+## 🔌 5. Using Real CAN Devices
+
+On Linux, **all CAN devices are used only through SocketCAN.** Only SocketCAN is shown as the CAN type in the program.
+USB-CAN devices are recognized as `can0`, `can1` … by the default Linux kernel drivers.
+**Do not install vendor drivers such as PCAN / Kvaser.** (For example, installing the chardev driver from the PEAK website prevents `can0` from appearing.)
+
+| Device | Kernel driver | Ubuntu / Debian PC | Raspberry Pi OS |
+|---|---|---|---|
+| PCAN-USB (PEAK) | `peak_usb` | ✅ | ✅ |
+| candleLight / CANable (gs_usb) | `gs_usb` | ✅ | ✅ |
+| Kvaser USB | `kvaser_usb` | ✅ (Ubuntu needs `linux-modules-extra` — installed automatically by `install_runtime_en.sh`) | ❌ not in the default kernel |
+
+```bash
+# 1) Plug the device into USB and check detection
+ip link show                     # OK if can0 is listed
+dmesg | grep -i can | tail       # check driver load messages
+
+# 2) Use in the program: Connection Control → CAN type SocketCAN → channel can0 → select bitrate → Open
+```
+
+To check directly from the terminal without the program:
+
+```bash
+# Set Classic CAN 500 kbit/s and bring up
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 500000
+sudo ip link set can0 up
+
+# CAN FD (arbitration 500 kbit/s / data 2 Mbit/s)
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 500000 dbitrate 2000000 fd on
+sudo ip link set can0 up
+
+# Status / receive / send
+ip -details -statistics link show can0
+candump can0                       # check reception (Ctrl+C to quit)
+cansend can0 123#1122334455667788  # send ID 0x123, 8 bytes
+cansend can0 123##1112233          # send a CAN FD frame (first digit after ## is the flags)
+
+# Bring down
+sudo ip link set can0 down
+```
+
+## 🧪 6. Testing with Virtual CAN (vcan) without a Device
+
+```bash
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan
+sudo ip link set vcan0 mtu 72    # only when testing CAN FD (run before up)
+sudo ip link set up vcan0
+```
+
+Select channel `vcan0` in the program and Open. You can send frames from another terminal to check reception.
+
+```bash
+cansend vcan0 123#DEADBEEF       # check that the program receives it
+candump vcan0                    # check frames sent by the program
+```
+
+Delete: `sudo ip link delete vcan0` (it disappears automatically on reboot)
+
+## 🩺 7. Troubleshooting
+
+| Symptom | Cause / Solution |
+|---|---|
+| `This package has no executable for the CPU of this PC` | The package has no build for this CPU. Check `ls bin` and get a package that includes your CPU. |
+| `The Linux on this PC is too old to run this program` | Update the OS, or get a package built on an older OS. |
+| `Permission denied` | `chmod +x run.sh install_runtime_en.sh` |
+| `qt.qpa.plugin: Could not load the Qt platform plugin` | Run `./install_runtime_en.sh` again. If it still fails, `QT_QPA_PLATFORM=xcb ./run.sh` |
+| Korean text appears as boxes (□) | `sudo apt-get install -y fonts-nanum && fc-cache -f` |
+| Cannot type Korean | Run `./install_runtime_en.sh --korean` and log in again. Check that `ibus` is running (`pgrep ibus-daemon`) and Hangul is added in `ibus-setup`. If needed: `QT_IM_MODULE=ibus ./run.sh` |
+| `can0` not shown in `ip link show` | Reconnect the device → check the driver messages at the end of `dmesg`. On Ubuntu, `sudo apt-get install linux-modules-extra-$(uname -r)` and reboot. |
+| Permission error on CAN Open | Check that the account is in the sudo group: `groups`. If not, the administrator runs `sudo usermod -aG sudo <account>`, then log in again. |
+| Settings are not saved | Check write permission for the program folder: `ls -ld .` (move it under your home folder). |
+| Tooltips/windows look odd (Wayland) | Run in X11 mode with `QT_QPA_PLATFORM=xcb ./run.sh` |
+
+## 🔄 8. Moving to Another PC / Updating / Removing
+
+- **Moving to another PC**: copy the whole folder → on the new PC, `./install_runtime_en.sh` → `./run.sh`. Even if the CPU is different, the same package can be used as is.
+- **Updating**: extract the new version and copy `session.pjjsettings` and `{PK_FILE_NAME}` from the old folder to the new folder to keep your settings.
+- **Removing**: just delete the folder. (System packages installed by `install_runtime_en.sh` may be used by other programs, so it is recommended to leave them.)
+
+## 📝 {APP_VERSION} Features and Usage Notes
+- User Panel: register CMD/RCV/DEL in Add TX Tool → sequence → Command Sequence Settings.
+- Saved CMD data and RCV bit conditions can be edited and run without a DBC.
+- sequence Force skips RCV, and Packet Control excludes CMD/RCV and runs only START/STOP/DEL. There is no global Force RUN mode.
+- In TX counter, you can choose to sync with the latest RX DBC raw value, with Up/Down/Round-trip fallback.
+- Real-time graph: Reset Zoom (last 30 seconds), Auto Y (currently displayed range), Fit All Data (retained range).
+- Closing the panel or changing the mode stops all panel transmissions and waits.
+- Registered packets with a positive cycle are sent from a per-BUS thread, and missed deadlines are shown in the system log. Actual cycle performance must be verified with the hardware/driver.
+- Panel FD/BRS, slider Home, minimum grid, and window enlargement are supported.
+- LOG tab: supports Extended ID filter, retransmission of filtered results, and Save to extract in the original format.
+- CAN sessions start in Close state regardless of the previously saved state. The sudo password is used only while running and is never stored in files or logs.
+- Detailed usage: MANUAL_en.md / USER_PANEL_SEQUENCE_en.md / USER_PANEL_RELEASE_NOTES_en.md.
+- If Consolas is not available or a character is not supported, the system fallback font is used.
+"""
+        for readme_name, readme_content in (('README_Linux_Guide.md', readme_ko),
+                                            ('README_Linux_Guide_en.md', readme_en)):
+            with open(os.path.join(dist_path, readme_name), 'w', encoding='utf-8', newline='\n') as f:
+                f.write(readme_content)
     elif current_os == 'Windows':
         readme_path = os.path.join(dist_path, 'README_Windows_Run_Guide.txt')
         readme_content = f"""{app_prefix.replace('_', ' ')} - 윈도우 환경 실행 가이드
