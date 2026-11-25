@@ -1,0 +1,332 @@
+VERSION "1.3"
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: VCU STR_CH1_FL STR_CH2_FR STR_CH3_RL STR_CH4_RR
+
+BO_ 0 NMT_Control: 2 VCU
+ SG_ NMT_Command : 0|8@1+ (1,0) [0|255] "" STR_CH1_FL,STR_CH2_FR,STR_CH3_RL,STR_CH4_RR
+ SG_ NMT_NodeID : 8|8@1+ (1,0) [0|127] "" STR_CH1_FL,STR_CH2_FR,STR_CH3_RL,STR_CH4_RR
+
+BO_ 128 CANopen_SYNC: 0 VCU
+
+BO_ 1919 VCU_Master_Heartbeat: 1 VCU
+ SG_ VCU_NMT_State : 0|8@1+ (1,0) [0|255] "" STR_CH1_FL,STR_CH2_FR,STR_CH3_RL,STR_CH4_RR
+
+BO_ 513 STR1_FL_RPDO1_PosCmd: 8 VCU
+ SG_ STR1_FL_Cmd_Mode : 0|8@1+ (1,0) [0|255] "" STR_CH1_FL
+ SG_ STR1_FL_Cmd_MoveSpeed : 8|16@1+ (1,0) [0|65535] "RPM" STR_CH1_FL
+ SG_ STR1_FL_Cmd_PosRefType : 24|8@1+ (1,0) [0|1] "" STR_CH1_FL
+ SG_ STR1_FL_Cmd_TargetPos : 32|32@1- (1,0) [-2147483648|2147483647] "cnt" STR_CH1_FL
+
+BO_ 769 STR1_FL_RPDO2_MotionParam: 6 VCU
+ SG_ STR1_FL_Param_Accel : 0|16@1+ (1,0) [1|65535] "RPM/s" STR_CH1_FL
+ SG_ STR1_FL_Param_Decel : 16|16@1+ (1,0) [1|65535] "RPM/s" STR_CH1_FL
+ SG_ STR1_FL_Param_MaxSpeed : 32|16@1+ (1,0) [1|65535] "RPM" STR_CH1_FL
+
+BO_ 385 STR1_FL_TPDO1_PosSpd: 8 STR_CH1_FL
+ SG_ STR1_FL_FB_Position : 0|32@1- (1,0) [-2147483648|2147483647] "cnt" VCU
+ SG_ STR1_FL_FB_MotorSpeed : 32|32@1- (1,0) [-2147483648|2147483647] "RPM" VCU
+
+BO_ 641 STR1_FL_TPDO2_Status: 8 STR_CH1_FL
+ SG_ STR1_FL_FB_Current : 0|16@1+ (0.01,0) [0|655.35] "A" VCU
+ SG_ STR1_FL_FB_PosComplete : 16|8@1+ (1,0) [0|1] "" VCU
+ SG_ STR1_FL_FB_StallStatus : 24|8@1+ (1,0) [0|2] "" VCU
+ SG_ STR1_FL_FB_FaultStatus : 32|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR1_FL_FB_Limit_SQ1 : 40|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR1_FL_FB_Limit_SQ2 : 41|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR1_FL_FB_ControlMode : 48|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR1_FL_FB_ErrorReg : 56|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 129 STR1_FL_EMCY: 8 STR_CH1_FL
+ SG_ STR1_FL_EMCY_ErrorCode : 0|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR1_FL_EMCY_ErrorReg : 16|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR1_FL_EMCY_DriverFault : 32|16@1+ (1,0) [0|65535] "" VCU
+
+BO_ 1793 STR1_FL_Heartbeat: 1 STR_CH1_FL
+ SG_ STR1_FL_NMT_State : 0|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 1537 STR1_FL_SDO_Req: 8 VCU
+ SG_ STR1_FL_SDO_Req_Cmd : 0|8@1+ (1,0) [0|255] "" STR_CH1_FL
+ SG_ STR1_FL_SDO_Req_Index : 8|16@1+ (1,0) [0|65535] "" STR_CH1_FL
+ SG_ STR1_FL_SDO_Req_SubIndex : 24|8@1+ (1,0) [0|255] "" STR_CH1_FL
+ SG_ STR1_FL_SDO_Req_Data : 32|32@1+ (1,0) [0|4294967295] "" STR_CH1_FL
+
+BO_ 1409 STR1_FL_SDO_Res: 8 STR_CH1_FL
+ SG_ STR1_FL_SDO_Res_Cmd : 0|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR1_FL_SDO_Res_Index : 8|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR1_FL_SDO_Res_SubIndex : 24|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR1_FL_SDO_Res_Data : 32|32@1+ (1,0) [0|4294967295] "" VCU
+
+BO_ 514 STR2_FR_RPDO1_PosCmd: 8 VCU
+ SG_ STR2_FR_Cmd_Mode : 0|8@1+ (1,0) [0|255] "" STR_CH2_FR
+ SG_ STR2_FR_Cmd_MoveSpeed : 8|16@1+ (1,0) [0|65535] "RPM" STR_CH2_FR
+ SG_ STR2_FR_Cmd_PosRefType : 24|8@1+ (1,0) [0|1] "" STR_CH2_FR
+ SG_ STR2_FR_Cmd_TargetPos : 32|32@1- (1,0) [-2147483648|2147483647] "cnt" STR_CH2_FR
+
+BO_ 770 STR2_FR_RPDO2_MotionParam: 6 VCU
+ SG_ STR2_FR_Param_Accel : 0|16@1+ (1,0) [1|65535] "RPM/s" STR_CH2_FR
+ SG_ STR2_FR_Param_Decel : 16|16@1+ (1,0) [1|65535] "RPM/s" STR_CH2_FR
+ SG_ STR2_FR_Param_MaxSpeed : 32|16@1+ (1,0) [1|65535] "RPM" STR_CH2_FR
+
+BO_ 386 STR2_FR_TPDO1_PosSpd: 8 STR_CH2_FR
+ SG_ STR2_FR_FB_Position : 0|32@1- (1,0) [-2147483648|2147483647] "cnt" VCU
+ SG_ STR2_FR_FB_MotorSpeed : 32|32@1- (1,0) [-2147483648|2147483647] "RPM" VCU
+
+BO_ 642 STR2_FR_TPDO2_Status: 8 STR_CH2_FR
+ SG_ STR2_FR_FB_Current : 0|16@1+ (0.01,0) [0|655.35] "A" VCU
+ SG_ STR2_FR_FB_PosComplete : 16|8@1+ (1,0) [0|1] "" VCU
+ SG_ STR2_FR_FB_StallStatus : 24|8@1+ (1,0) [0|2] "" VCU
+ SG_ STR2_FR_FB_FaultStatus : 32|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR2_FR_FB_Limit_SQ1 : 40|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR2_FR_FB_Limit_SQ2 : 41|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR2_FR_FB_ControlMode : 48|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR2_FR_FB_ErrorReg : 56|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 130 STR2_FR_EMCY: 8 STR_CH2_FR
+ SG_ STR2_FR_EMCY_ErrorCode : 0|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR2_FR_EMCY_ErrorReg : 16|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR2_FR_EMCY_DriverFault : 32|16@1+ (1,0) [0|65535] "" VCU
+
+BO_ 1794 STR2_FR_Heartbeat: 1 STR_CH2_FR
+ SG_ STR2_FR_NMT_State : 0|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 1538 STR2_FR_SDO_Req: 8 VCU
+ SG_ STR2_FR_SDO_Req_Cmd : 0|8@1+ (1,0) [0|255] "" STR_CH2_FR
+ SG_ STR2_FR_SDO_Req_Index : 8|16@1+ (1,0) [0|65535] "" STR_CH2_FR
+ SG_ STR2_FR_SDO_Req_SubIndex : 24|8@1+ (1,0) [0|255] "" STR_CH2_FR
+ SG_ STR2_FR_SDO_Req_Data : 32|32@1+ (1,0) [0|4294967295] "" STR_CH2_FR
+
+BO_ 1410 STR2_FR_SDO_Res: 8 STR_CH2_FR
+ SG_ STR2_FR_SDO_Res_Cmd : 0|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR2_FR_SDO_Res_Index : 8|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR2_FR_SDO_Res_SubIndex : 24|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR2_FR_SDO_Res_Data : 32|32@1+ (1,0) [0|4294967295] "" VCU
+
+BO_ 515 STR3_RL_RPDO1_PosCmd: 8 VCU
+ SG_ STR3_RL_Cmd_Mode : 0|8@1+ (1,0) [0|255] "" STR_CH3_RL
+ SG_ STR3_RL_Cmd_MoveSpeed : 8|16@1+ (1,0) [0|65535] "RPM" STR_CH3_RL
+ SG_ STR3_RL_Cmd_PosRefType : 24|8@1+ (1,0) [0|1] "" STR_CH3_RL
+ SG_ STR3_RL_Cmd_TargetPos : 32|32@1- (1,0) [-2147483648|2147483647] "cnt" STR_CH3_RL
+
+BO_ 771 STR3_RL_RPDO2_MotionParam: 6 VCU
+ SG_ STR3_RL_Param_Accel : 0|16@1+ (1,0) [1|65535] "RPM/s" STR_CH3_RL
+ SG_ STR3_RL_Param_Decel : 16|16@1+ (1,0) [1|65535] "RPM/s" STR_CH3_RL
+ SG_ STR3_RL_Param_MaxSpeed : 32|16@1+ (1,0) [1|65535] "RPM" STR_CH3_RL
+
+BO_ 387 STR3_RL_TPDO1_PosSpd: 8 STR_CH3_RL
+ SG_ STR3_RL_FB_Position : 0|32@1- (1,0) [-2147483648|2147483647] "cnt" VCU
+ SG_ STR3_RL_FB_MotorSpeed : 32|32@1- (1,0) [-2147483648|2147483647] "RPM" VCU
+
+BO_ 643 STR3_RL_TPDO2_Status: 8 STR_CH3_RL
+ SG_ STR3_RL_FB_Current : 0|16@1+ (0.01,0) [0|655.35] "A" VCU
+ SG_ STR3_RL_FB_PosComplete : 16|8@1+ (1,0) [0|1] "" VCU
+ SG_ STR3_RL_FB_StallStatus : 24|8@1+ (1,0) [0|2] "" VCU
+ SG_ STR3_RL_FB_FaultStatus : 32|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR3_RL_FB_Limit_SQ1 : 40|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR3_RL_FB_Limit_SQ2 : 41|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR3_RL_FB_ControlMode : 48|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR3_RL_FB_ErrorReg : 56|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 131 STR3_RL_EMCY: 8 STR_CH3_RL
+ SG_ STR3_RL_EMCY_ErrorCode : 0|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR3_RL_EMCY_ErrorReg : 16|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR3_RL_EMCY_DriverFault : 32|16@1+ (1,0) [0|65535] "" VCU
+
+BO_ 1795 STR3_RL_Heartbeat: 1 STR_CH3_RL
+ SG_ STR3_RL_NMT_State : 0|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 1539 STR3_RL_SDO_Req: 8 VCU
+ SG_ STR3_RL_SDO_Req_Cmd : 0|8@1+ (1,0) [0|255] "" STR_CH3_RL
+ SG_ STR3_RL_SDO_Req_Index : 8|16@1+ (1,0) [0|65535] "" STR_CH3_RL
+ SG_ STR3_RL_SDO_Req_SubIndex : 24|8@1+ (1,0) [0|255] "" STR_CH3_RL
+ SG_ STR3_RL_SDO_Req_Data : 32|32@1+ (1,0) [0|4294967295] "" STR_CH3_RL
+
+BO_ 1411 STR3_RL_SDO_Res: 8 STR_CH3_RL
+ SG_ STR3_RL_SDO_Res_Cmd : 0|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR3_RL_SDO_Res_Index : 8|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR3_RL_SDO_Res_SubIndex : 24|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR3_RL_SDO_Res_Data : 32|32@1+ (1,0) [0|4294967295] "" VCU
+
+BO_ 516 STR4_RR_RPDO1_PosCmd: 8 VCU
+ SG_ STR4_RR_Cmd_Mode : 0|8@1+ (1,0) [0|255] "" STR_CH4_RR
+ SG_ STR4_RR_Cmd_MoveSpeed : 8|16@1+ (1,0) [0|65535] "RPM" STR_CH4_RR
+ SG_ STR4_RR_Cmd_PosRefType : 24|8@1+ (1,0) [0|1] "" STR_CH4_RR
+ SG_ STR4_RR_Cmd_TargetPos : 32|32@1- (1,0) [-2147483648|2147483647] "cnt" STR_CH4_RR
+
+BO_ 772 STR4_RR_RPDO2_MotionParam: 6 VCU
+ SG_ STR4_RR_Param_Accel : 0|16@1+ (1,0) [1|65535] "RPM/s" STR_CH4_RR
+ SG_ STR4_RR_Param_Decel : 16|16@1+ (1,0) [1|65535] "RPM/s" STR_CH4_RR
+ SG_ STR4_RR_Param_MaxSpeed : 32|16@1+ (1,0) [1|65535] "RPM" STR_CH4_RR
+
+BO_ 388 STR4_RR_TPDO1_PosSpd: 8 STR_CH4_RR
+ SG_ STR4_RR_FB_Position : 0|32@1- (1,0) [-2147483648|2147483647] "cnt" VCU
+ SG_ STR4_RR_FB_MotorSpeed : 32|32@1- (1,0) [-2147483648|2147483647] "RPM" VCU
+
+BO_ 644 STR4_RR_TPDO2_Status: 8 STR_CH4_RR
+ SG_ STR4_RR_FB_Current : 0|16@1+ (0.01,0) [0|655.35] "A" VCU
+ SG_ STR4_RR_FB_PosComplete : 16|8@1+ (1,0) [0|1] "" VCU
+ SG_ STR4_RR_FB_StallStatus : 24|8@1+ (1,0) [0|2] "" VCU
+ SG_ STR4_RR_FB_FaultStatus : 32|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR4_RR_FB_Limit_SQ1 : 40|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR4_RR_FB_Limit_SQ2 : 41|1@1+ (1,0) [0|1] "" VCU
+ SG_ STR4_RR_FB_ControlMode : 48|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR4_RR_FB_ErrorReg : 56|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 132 STR4_RR_EMCY: 8 STR_CH4_RR
+ SG_ STR4_RR_EMCY_ErrorCode : 0|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR4_RR_EMCY_ErrorReg : 16|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR4_RR_EMCY_DriverFault : 32|16@1+ (1,0) [0|65535] "" VCU
+
+BO_ 1796 STR4_RR_Heartbeat: 1 STR_CH4_RR
+ SG_ STR4_RR_NMT_State : 0|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 1540 STR4_RR_SDO_Req: 8 VCU
+ SG_ STR4_RR_SDO_Req_Cmd : 0|8@1+ (1,0) [0|255] "" STR_CH4_RR
+ SG_ STR4_RR_SDO_Req_Index : 8|16@1+ (1,0) [0|65535] "" STR_CH4_RR
+ SG_ STR4_RR_SDO_Req_SubIndex : 24|8@1+ (1,0) [0|255] "" STR_CH4_RR
+ SG_ STR4_RR_SDO_Req_Data : 32|32@1+ (1,0) [0|4294967295] "" STR_CH4_RR
+
+BO_ 1412 STR4_RR_SDO_Res: 8 STR_CH4_RR
+ SG_ STR4_RR_SDO_Res_Cmd : 0|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR4_RR_SDO_Res_Index : 8|16@1+ (1,0) [0|65535] "" VCU
+ SG_ STR4_RR_SDO_Res_SubIndex : 24|8@1+ (1,0) [0|255] "" VCU
+ SG_ STR4_RR_SDO_Res_Data : 32|32@1+ (1,0) [0|4294967295] "" VCU
+
+
+CM_ BO_ 0 "CANopen NMT Global/Node State Transition (0x000, NMT_NodeID=0 for ALL nodes)";
+CM_ BO_ 128 "CANopen Global SYNC Trigger (0x080, DLC 0) for synchronous PDO execution";
+CM_ BO_ 1919 "Master Heartbeat Producer (0x77F, Master Node 0x7F) for Driver Watchdog (0x1016)";
+CM_ BO_ 513 "Steering CH1 (FL, Node 1) RPDO1: Position Control Command (0x201)";
+CM_ BO_ 769 "Steering CH1 (FL, Node 1) RPDO2: Runtime Accel/Decel/MaxSpeed (0x301)";
+CM_ BO_ 385 "Steering CH1 (FL, Node 1) TPDO1: Encoder Position & Signed Motor Speed (0x181)";
+CM_ BO_ 641 "Steering CH1 (FL, Node 1) TPDO2: Current, Complete(0=Moving/1=Done), Stall, Fault, Limit, Mode, ErrorReg (0x281)";
+CM_ BO_ 129 "Steering CH1 (FL, Node 1) EMCY Fault Notification (0x081)";
+CM_ BO_ 1793 "Steering CH1 (FL, Node 1) Boot-up / Heartbeat (0x701)";
+CM_ BO_ 1537 "Steering CH1 (FL, Node 1) SDO Request (0x601)";
+CM_ BO_ 1409 "Steering CH1 (FL, Node 1) SDO Response (0x581)";
+CM_ BO_ 514 "Steering CH2 (FR, Node 2) RPDO1: Position Control Command (0x202)";
+CM_ BO_ 770 "Steering CH2 (FR, Node 2) RPDO2: Runtime Accel/Decel/MaxSpeed (0x302)";
+CM_ BO_ 386 "Steering CH2 (FR, Node 2) TPDO1: Encoder Position & Signed Motor Speed (0x182)";
+CM_ BO_ 642 "Steering CH2 (FR, Node 2) TPDO2: Current, Complete(0=Moving/1=Done), Stall, Fault, Limit, Mode, ErrorReg (0x282)";
+CM_ BO_ 130 "Steering CH2 (FR, Node 2) EMCY Fault Notification (0x082)";
+CM_ BO_ 1794 "Steering CH2 (FR, Node 2) Boot-up / Heartbeat (0x702)";
+CM_ BO_ 1538 "Steering CH2 (FR, Node 2) SDO Request (0x602)";
+CM_ BO_ 1410 "Steering CH2 (FR, Node 2) SDO Response (0x582)";
+CM_ BO_ 515 "Steering CH3 (RL, Node 3) RPDO1: Position Control Command (0x203)";
+CM_ BO_ 771 "Steering CH3 (RL, Node 3) RPDO2: Runtime Accel/Decel/MaxSpeed (0x303)";
+CM_ BO_ 387 "Steering CH3 (RL, Node 3) TPDO1: Encoder Position & Signed Motor Speed (0x183)";
+CM_ BO_ 643 "Steering CH3 (RL, Node 3) TPDO2: Current, Complete(0=Moving/1=Done), Stall, Fault, Limit, Mode, ErrorReg (0x283)";
+CM_ BO_ 131 "Steering CH3 (RL, Node 3) EMCY Fault Notification (0x083)";
+CM_ BO_ 1795 "Steering CH3 (RL, Node 3) Boot-up / Heartbeat (0x703)";
+CM_ BO_ 1539 "Steering CH3 (RL, Node 3) SDO Request (0x603)";
+CM_ BO_ 1411 "Steering CH3 (RL, Node 3) SDO Response (0x583)";
+CM_ BO_ 516 "Steering CH4 (RR, Node 4) RPDO1: Position Control Command (0x204)";
+CM_ BO_ 772 "Steering CH4 (RR, Node 4) RPDO2: Runtime Accel/Decel/MaxSpeed (0x304)";
+CM_ BO_ 388 "Steering CH4 (RR, Node 4) TPDO1: Encoder Position & Signed Motor Speed (0x184)";
+CM_ BO_ 644 "Steering CH4 (RR, Node 4) TPDO2: Current, Complete(0=Moving/1=Done), Stall, Fault, Limit, Mode, ErrorReg (0x284)";
+CM_ BO_ 132 "Steering CH4 (RR, Node 4) EMCY Fault Notification (0x084)";
+CM_ BO_ 1796 "Steering CH4 (RR, Node 4) Boot-up / Heartbeat (0x704)";
+CM_ BO_ 1540 "Steering CH4 (RR, Node 4) SDO Request (0x604)";
+CM_ BO_ 1412 "Steering CH4 (RR, Node 4) SDO Response (0x584)";
+
+BA_DEF_  "BusType" STRING ;
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 10000;
+BA_DEF_DEF_  "BusType" "CAN";
+BA_DEF_DEF_  "GenMsgCycleTime" 0;
+BA_ "BusType" "CAN";
+BA_ "GenMsgCycleTime" BO_ 1919 100;
+BA_ "GenMsgCycleTime" BO_ 513 20;
+BA_ "GenMsgCycleTime" BO_ 385 20;
+BA_ "GenMsgCycleTime" BO_ 641 50;
+BA_ "GenMsgCycleTime" BO_ 1793 100;
+BA_ "GenMsgCycleTime" BO_ 514 20;
+BA_ "GenMsgCycleTime" BO_ 386 20;
+BA_ "GenMsgCycleTime" BO_ 642 50;
+BA_ "GenMsgCycleTime" BO_ 1794 100;
+BA_ "GenMsgCycleTime" BO_ 515 20;
+BA_ "GenMsgCycleTime" BO_ 387 20;
+BA_ "GenMsgCycleTime" BO_ 643 50;
+BA_ "GenMsgCycleTime" BO_ 1795 100;
+BA_ "GenMsgCycleTime" BO_ 516 20;
+BA_ "GenMsgCycleTime" BO_ 388 20;
+BA_ "GenMsgCycleTime" BO_ 644 50;
+BA_ "GenMsgCycleTime" BO_ 1796 100;
+
+VAL_ 0 NMT_Command 1 "Operational_0x01" 2 "Stopped_0x02" 128 "Pre_Operational_0x80" 129 "Reset_Node_0x81" 130 "Reset_Comm_0x82" ;
+VAL_ 0 NMT_NodeID 0 "ALL_NODES" 1 "STR_CH1_FL" 2 "STR_CH2_FR" 3 "STR_CH3_RL" 4 "STR_CH4_RR" ;
+VAL_ 1919 VCU_NMT_State 5 "Operational_0x05" ;
+VAL_ 513 STR1_FL_Cmd_Mode 0 "Duty_Unused" 1 "ExtSpeed_Unused" 2 "Torque_Unused" 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 513 STR1_FL_Cmd_PosRefType 0 "Absolute" 1 "Relative" ;
+VAL_ 641 STR1_FL_FB_PosComplete 0 "In_Progress" 1 "Complete" ;
+VAL_ 641 STR1_FL_FB_StallStatus 0 "No_Stall" 1 "FWD_Stall" 2 "REV_Stall" ;
+VAL_ 641 STR1_FL_FB_FaultStatus 0 "Normal" 2 "Stall_Stop" 4 "Target_Speed_Not_Reached" 6 "Overcurrent" 7 "Overtemp" 8 "Overvoltage" 9 "Undervoltage" 10 "Short_Circuit" 11 "Brake_Current_Fault" ;
+VAL_ 641 STR1_FL_FB_Limit_SQ1 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 641 STR1_FL_FB_Limit_SQ2 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 641 STR1_FL_FB_ControlMode 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 1793 STR1_FL_NMT_State 0 "Boot_Up" 4 "Stopped" 5 "Operational" 127 "Pre_Operational" ;
+VAL_ 1537 STR1_FL_SDO_Req_Cmd 35 "Write_4B_0x23" 43 "Write_2B_0x2B" 47 "Write_1B_0x2F" 64 "Read_Req_0x40" ;
+VAL_ 1409 STR1_FL_SDO_Res_Cmd 67 "Read_4B_OK_0x43" 75 "Read_2B_OK_0x4B" 79 "Read_1B_OK_0x4F" 96 "Write_OK_0x60" 128 "Abort_0x80" ;
+VAL_ 514 STR2_FR_Cmd_Mode 0 "Duty_Unused" 1 "ExtSpeed_Unused" 2 "Torque_Unused" 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 514 STR2_FR_Cmd_PosRefType 0 "Absolute" 1 "Relative" ;
+VAL_ 642 STR2_FR_FB_PosComplete 0 "In_Progress" 1 "Complete" ;
+VAL_ 642 STR2_FR_FB_StallStatus 0 "No_Stall" 1 "FWD_Stall" 2 "REV_Stall" ;
+VAL_ 642 STR2_FR_FB_FaultStatus 0 "Normal" 2 "Stall_Stop" 4 "Target_Speed_Not_Reached" 6 "Overcurrent" 7 "Overtemp" 8 "Overvoltage" 9 "Undervoltage" 10 "Short_Circuit" 11 "Brake_Current_Fault" ;
+VAL_ 642 STR2_FR_FB_Limit_SQ1 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 642 STR2_FR_FB_Limit_SQ2 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 642 STR2_FR_FB_ControlMode 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 1794 STR2_FR_NMT_State 0 "Boot_Up" 4 "Stopped" 5 "Operational" 127 "Pre_Operational" ;
+VAL_ 1538 STR2_FR_SDO_Req_Cmd 35 "Write_4B_0x23" 43 "Write_2B_0x2B" 47 "Write_1B_0x2F" 64 "Read_Req_0x40" ;
+VAL_ 1410 STR2_FR_SDO_Res_Cmd 67 "Read_4B_OK_0x43" 75 "Read_2B_OK_0x4B" 79 "Read_1B_OK_0x4F" 96 "Write_OK_0x60" 128 "Abort_0x80" ;
+VAL_ 515 STR3_RL_Cmd_Mode 0 "Duty_Unused" 1 "ExtSpeed_Unused" 2 "Torque_Unused" 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 515 STR3_RL_Cmd_PosRefType 0 "Absolute" 1 "Relative" ;
+VAL_ 643 STR3_RL_FB_PosComplete 0 "In_Progress" 1 "Complete" ;
+VAL_ 643 STR3_RL_FB_StallStatus 0 "No_Stall" 1 "FWD_Stall" 2 "REV_Stall" ;
+VAL_ 643 STR3_RL_FB_FaultStatus 0 "Normal" 2 "Stall_Stop" 4 "Target_Speed_Not_Reached" 6 "Overcurrent" 7 "Overtemp" 8 "Overvoltage" 9 "Undervoltage" 10 "Short_Circuit" 11 "Brake_Current_Fault" ;
+VAL_ 643 STR3_RL_FB_Limit_SQ1 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 643 STR3_RL_FB_Limit_SQ2 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 643 STR3_RL_FB_ControlMode 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 1795 STR3_RL_NMT_State 0 "Boot_Up" 4 "Stopped" 5 "Operational" 127 "Pre_Operational" ;
+VAL_ 1539 STR3_RL_SDO_Req_Cmd 35 "Write_4B_0x23" 43 "Write_2B_0x2B" 47 "Write_1B_0x2F" 64 "Read_Req_0x40" ;
+VAL_ 1411 STR3_RL_SDO_Res_Cmd 67 "Read_4B_OK_0x43" 75 "Read_2B_OK_0x4B" 79 "Read_1B_OK_0x4F" 96 "Write_OK_0x60" 128 "Abort_0x80" ;
+VAL_ 516 STR4_RR_Cmd_Mode 0 "Duty_Unused" 1 "ExtSpeed_Unused" 2 "Torque_Unused" 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 516 STR4_RR_Cmd_PosRefType 0 "Absolute" 1 "Relative" ;
+VAL_ 644 STR4_RR_FB_PosComplete 0 "In_Progress" 1 "Complete" ;
+VAL_ 644 STR4_RR_FB_StallStatus 0 "No_Stall" 1 "FWD_Stall" 2 "REV_Stall" ;
+VAL_ 644 STR4_RR_FB_FaultStatus 0 "Normal" 2 "Stall_Stop" 4 "Target_Speed_Not_Reached" 6 "Overcurrent" 7 "Overtemp" 8 "Overvoltage" 9 "Undervoltage" 10 "Short_Circuit" 11 "Brake_Current_Fault" ;
+VAL_ 644 STR4_RR_FB_Limit_SQ1 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 644 STR4_RR_FB_Limit_SQ2 0 "Pressed_Low" 1 "Released_High" ;
+VAL_ 644 STR4_RR_FB_ControlMode 3 "Position_Control" 16 "Normal_Stop" 17 "Emergency_Stop" 18 "Free_Stop" ;
+VAL_ 1796 STR4_RR_NMT_State 0 "Boot_Up" 4 "Stopped" 5 "Operational" 127 "Pre_Operational" ;
+VAL_ 1540 STR4_RR_SDO_Req_Cmd 35 "Write_4B_0x23" 43 "Write_2B_0x2B" 47 "Write_1B_0x2F" 64 "Read_Req_0x40" ;
+VAL_ 1412 STR4_RR_SDO_Res_Cmd 67 "Read_4B_OK_0x43" 75 "Read_2B_OK_0x4B" 79 "Read_1B_OK_0x4F" 96 "Write_OK_0x60" 128 "Abort_0x80" ;

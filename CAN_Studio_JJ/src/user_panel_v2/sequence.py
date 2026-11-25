@@ -1,13 +1,15 @@
 """DBC-independent sequence execution and panel control."""
 import copy
 import time
+from collections import deque
 from datetime import datetime
 
 import can
 from PyQt5.QtCore import QTimer, pyqtSignal, QSize, Qt
-from PyQt5.QtGui import QColor, QIcon, QTextCursor, QTextCharFormat
+from PyQt5.QtGui import QColor, QFont, QIcon, QTextCursor, QTextCharFormat
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QToolButton, QSizePolicy, QTextEdit, QAction)
+                             QToolButton, QSizePolicy, QTextEdit, QAction,
+                             QDialog, QFileDialog, QMessageBox)
 from src.crc_utils import calculate_crc16_ccitt_false
 from src.utils import get_resource_path
 from .masked_data import masked_match
@@ -65,6 +67,94 @@ def validate_steps(steps, actions_only=False, allow_empty=False):
                 raise ValueError("Hyundai CRC requires at least 3 bytes and a compatible ID.")
 
 
+DETAIL_LOG_LIMIT = 5000
+
+
+def format_bytes(data):
+    return " ".join(f"{int(b) & 0xFF:02X}" for b in data) if data else "-"
+
+
+def format_expected(data, mask):
+    """RCV 기대값: 비교 비트 전체는 HEX, 비교 제외는 XX, 일부 비트는 값/마스크."""
+    parts = []
+    for value, m in zip(data, mask):
+        m = int(m) & 0xFF
+        if m == 0xFF:
+            parts.append(f"{int(value) & 0xFF:02X}")
+        elif m == 0:
+            parts.append("XX")
+        else:
+            parts.append(f"{int(value) & m:02X}/{m:02X}")
+    return " ".join(parts)
+
+
+def append_log_line(edit, text, color):
+    cursor = edit.textCursor()
+    cursor.movePosition(QTextCursor.End)
+    if not edit.document().isEmpty():
+        cursor.insertBlock()
+    fmt = QTextCharFormat()
+    fmt.setForeground(QColor(color))
+    cursor.insertText(text, fmt)
+    edit.setTextCursor(cursor)
+    edit.ensureCursorVisible()
+
+
+class SequenceLogDialog(QDialog):
+    """패킷 데이터를 포함한 시퀀스 상세 로그 창 (비모달)."""
+
+    def __init__(self, control):
+        super().__init__(control)
+        self.control = control
+        self.setWindowTitle(f"시퀀스 로그 · {control.log_title()}")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.resize(980, 480)
+        layout = QVBoxLayout(self)
+        self.view = QTextEdit()
+        self.view.setReadOnly(True)
+        self.view.setLineWrapMode(QTextEdit.NoWrap)
+        self.view.setStyleSheet("background:white; color:black;")
+        font = QFont("Consolas")
+        font.setStyleHint(QFont.Monospace)
+        font.setPointSize(9)
+        self.view.setFont(font)
+        self.view.document().setMaximumBlockCount(DETAIL_LOG_LIMIT)
+        layout.addWidget(self.view, 1)
+        buttons = QHBoxLayout()
+        self.clear_button = QPushButton("지우기")
+        self.save_button = QPushButton("파일로 저장")
+        close_button = QPushButton("닫기")
+        self.clear_button.clicked.connect(control.clear_detail_log)
+        self.save_button.clicked.connect(self.save)
+        close_button.clicked.connect(self.close)
+        buttons.addWidget(self.clear_button)
+        buttons.addWidget(self.save_button)
+        buttons.addStretch(1)
+        buttons.addWidget(close_button)
+        layout.addLayout(buttons)
+        self.reload()
+
+    def reload(self):
+        self.view.clear()
+        for text, color in self.control.detail_log:
+            append_log_line(self.view, text, color)
+
+    def append(self, text, color):
+        append_log_line(self.view, text, color)
+
+    def save(self):
+        default = f"sequence_log_{datetime.now():%Y%m%d_%H%M%S}.txt"
+        path, _ = QFileDialog.getSaveFileName(self, "시퀀스 로그 저장", default, "Text (*.txt)")
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"# {self.control.log_title()}\n")
+                f.write("\n".join(text for text, _ in self.control.detail_log) + "\n")
+        except OSError as exc:
+            QMessageBox.warning(self, "저장 실패", str(exc))
+
+
 class SequenceControl(QWidget):
     finished = pyqtSignal(bool)
     COLORS = {"ready": "#245A81", "run": "#00695C", "receive": "#F2B544",
@@ -76,6 +166,8 @@ class SequenceControl(QWidget):
         self.in_failure = False
         self.failure_steps = []
         self.index = -1
+        self.detail_log = deque(maxlen=DETAIL_LOG_LIMIT)
+        self.log_dialog = None
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self._tick)
@@ -119,6 +211,18 @@ class SequenceControl(QWidget):
             'QToolButton { background:#e3f5f7; border:1px solid #2194a4; border-radius:3px; padding:0; } '
             'QToolButton:hover { background:#bfe9ee; }')
         self.packet_button.clicked.connect(lambda: self.toggle(packet_only=True))
+        self.log_button = QToolButton()
+        self.log_button.setIcon(QIcon(get_resource_path('icon/panel/sequence_log.svg')))
+        self.log_button.setIconSize(QSize(force_icon_size, force_icon_size))
+        self.log_button.setToolTip('로그 보기 (송수신 데이터 포함)')
+        self.log_button.setAccessibleName('로그 보기')
+        self.log_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.log_button.setFixedWidth(force_button_width)
+        self.log_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.log_button.setStyleSheet(
+            'QToolButton { background:#f4f5f7; border:1px solid #8a9099; border-radius:3px; padding:0; } '
+            'QToolButton:hover { background:#e2e5ea; }')
+        self.log_button.clicked.connect(self.show_log)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setStyleSheet("background:white; color:black;")
@@ -133,6 +237,7 @@ class SequenceControl(QWidget):
         actions.addWidget(self.button, 1)
         actions.addWidget(self.force_button)
         actions.addWidget(self.packet_button)
+        actions.addWidget(self.log_button)
         layout.addLayout(actions)
         layout.addWidget(self.log, 1)
         self._state("ready", "실행")
@@ -152,20 +257,42 @@ class SequenceControl(QWidget):
         color = "black" if state == "receive" else "white"
         self.button.setStyleSheet(f"background:{self.COLORS[state]}; color:{color}; padding:1px;")
 
-    def write(self, message, color="black"):
+    def log_title(self):
+        return 'INIT' if self.cfg.get('is_init') else self.cfg.get('title', '시퀀스')
+
+    def write(self, message, color="black", detail=None):
         if hasattr(self.owner, 'log_system'):
-            title = 'INIT' if self.cfg.get('is_init') else self.cfg.get('title', '시퀀스')
-            self.owner.log_system(f'{title}: {message}', 'ERROR' if color == '#B3261E' else 'INFO')
+            self.owner.log_system(f'{self.log_title()}: {message}', 'ERROR' if color == '#B3261E' else 'INFO')
         stamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        cursor = self.log.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        if not self.log.document().isEmpty():
-            cursor.insertBlock()
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
-        cursor.insertText(f"[{stamp}] {message}", fmt)
-        self.log.setTextCursor(cursor)
-        self.log.ensureCursorVisible()
+        append_log_line(self.log, f"[{stamp}] {message}", color)
+        self._detail(stamp, message, color, detail)
+
+    def write_detail(self, message, color="black", detail=None):
+        """도구 로그에는 남기지 않고 상세 로그에만 기록한다 (불일치 수신 등)."""
+        self._detail(datetime.now().strftime("%H:%M:%S.%f")[:-3], message, color, detail)
+
+    def _detail(self, stamp, message, color, detail):
+        text = f"[{stamp}] {message}" + (f"  |  {detail}" if detail else "")
+        self.detail_log.append((text, color))
+        if self.log_dialog is not None:
+            self.log_dialog.append(text, color)
+
+    def clear_detail_log(self):
+        self.detail_log.clear()
+        if self.log_dialog is not None:
+            self.log_dialog.view.clear()
+
+    def show_log(self):
+        # 창은 닫으면 숨김만 하고 도구와 함께 삭제된다 (내용은 detail_log에서 계속 갱신).
+        if self.log_dialog is None:
+            self.log_dialog = SequenceLogDialog(self)
+        self.log_dialog.show()
+        self.log_dialog.raise_()
+        self.log_dialog.activateWindow()
+
+    def _expected_text(self, step):
+        p = step.get('packet', {})
+        return f"기대 {format_expected(p.get('data', []), step.get('mask', []))}"
 
     def step_log(self, status):
         step = self.steps[self.index]
@@ -195,10 +322,10 @@ class SequenceControl(QWidget):
             return
         self.toggle(force_rcv_skip=True)
 
-    def fail(self, message):
+    def fail(self, message, detail=None):
         self.timer.stop()
         self.watchdog.stop()
-        self.write(message, "#B3261E")
+        self.write(message, "#B3261E", detail)
         if (not self.in_failure and self.failure_steps and self.owner.mode == 'run'
                 and self.owner.isVisible()):
             self.in_failure = True
@@ -322,10 +449,12 @@ class SequenceControl(QWidget):
                 self.response_floor = time.time()
                 self.pending_match = False
                 self.last_receive = "수신 없음"
-            self.write(self.step_log(f"응답 대기 / 제한 {step['timeout_ms']} ms"))
+            self.write(self.step_log(f"응답 대기 / 제한 {step['timeout_ms']} ms"),
+                       detail=self._expected_text(step))
             self.deadline = time.time() + step['timeout_ms'] / 1000.0
             if self.pending_match:
-                self.write(self.step_log("응답 조건 일치"))
+                self.write(self.step_log("응답 조건 일치"),
+                           detail=f"RX {getattr(self, 'matched_receive', self.last_receive)}")
                 self.timer.start(0)
                 self.matched = True
             else:
@@ -337,9 +466,9 @@ class SequenceControl(QWidget):
             p = self.steps[self.index]["packet"]
             if hasattr(self.owner, 'tx_packets'):
                 runtime = self.owner._packet_runtimes[p['packet_id']]
-                runtime.send(data_override=self.steps[self.index].get('data_override'),
-                             data_mask=self.steps[self.index].get('data_mask'))
-                self.write(self.step_log("송신 완료"))
+                sent = runtime.send(data_override=self.steps[self.index].get('data_override'),
+                                    data_mask=self.steps[self.index].get('data_mask'))
+                self.write(self.step_log("송신 완료"), detail=f"TX {format_bytes(sent)}")
                 self.remaining -= 1
                 self.timer.start(int(p.get('cycle', 0)) if self.remaining else 0)
                 return
@@ -356,7 +485,7 @@ class SequenceControl(QWidget):
             self.owner.main_window.buses[p["bus"]].send(msg)
             self.owner.main_window.record_tx_activity(p["bus"], p["id"], payload, msg.is_fd,
                                                       is_ext=msg.is_extended_id)
-            self.write(self.step_log("송신 완료"))
+            self.write(self.step_log("송신 완료"), detail=f"TX {format_bytes(payload)}")
             self.remaining -= 1
             self.timer.start(int(p.get("cycle", 0)) if self.remaining else 0)
         except Exception as exc:
@@ -369,7 +498,9 @@ class SequenceControl(QWidget):
         if kind == "CMD" and self.remaining:
             self._send()
         elif kind == "RCV" and not self.matched:
-            self.fail(self.step_log("RCV 타임아웃"))
+            step = self.steps[self.index]
+            self.fail(self.step_log("RCV 타임아웃"),
+                      detail=f"{self._expected_text(step)} · 마지막 같은 ID 수신 {self.last_receive}")
         else:
             self._next()
 
@@ -387,11 +518,19 @@ class SequenceControl(QWidget):
         p = s["packet"]
         if (bus, can_id, extended, fd, brs) != (p["bus"], p["id"], p.get("is_extended_id", p["id"] > 0x7FF), p.get("is_fd", False), p.get("is_brs", False)):
             return
-        self.last_receive = bytes(data).hex(" ").upper()
+        self.last_receive = format_bytes(bytes(data))
         if not masked_match(data, p['data'], s['mask'], s.get('allow_length_mismatch', False)):
+            # 같은 BUS/ID인데 조건이 다른 프레임(예: SDO 중단 80 응답)은 상세 로그에만 남긴다.
+            if idx == self.index and not self.matched:
+                self.write_detail(self.step_log("조건 불일치 수신"), "#9A6700",
+                                  f"RX {self.last_receive} · {self._expected_text(s)}")
+            elif idx != self.index:
+                self.write_detail(f"{idx + 1}/{len(self.steps)} RCV 대기 전 조건 불일치 수신", "#9A6700",
+                                  f"RX {self.last_receive} · {self._expected_text(s)}")
             return
         self.pending_match = True
+        self.matched_receive = self.last_receive
         if idx == self.index and not self.matched:
             self.matched = True
-            self.write(self.step_log("응답 조건 일치"))
+            self.write(self.step_log("응답 조건 일치"), detail=f"RX {self.last_receive}")
             self.timer.start(0)

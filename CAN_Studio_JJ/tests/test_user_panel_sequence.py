@@ -176,6 +176,33 @@ class SequenceTest(unittest.TestCase):
         self.assertIn('2/3 RCV BUS_1 0x123 Init 응답 · 응답 조건 일치', c.log.toPlainText())
         self.assertNotIn('01 00 00 00', c.log.toPlainText())
 
+    def test_detail_log_keeps_tx_rx_data_and_mismatched_frames(self):
+        p = packet()
+        c = self.control([dict(kind='CMD', name='Req', packet=p, data_override=[0x2F] + [0] * 7),
+                          dict(kind='RCV', name='Resp', packet=dict(p, data=[0x60] + [0] * 7),
+                               mask=[255, 0x0F] + [0] * 6, timeout_ms=60)])
+        c.toggle()
+        QTest.qWait(5)
+        c.receive(time.time(), 1, p['id'], bytes([0x80, 0, 0x20, 0, 0x22, 0, 0, 8]), False, True)
+        deadline = time.monotonic() + 1.0
+        while c.running and time.monotonic() < deadline:
+            QTest.qWait(10)
+        detail = '\n'.join(text for text, _ in c.detail_log)
+        self.assertIn('TX 2F 00 00 00 00 00 00 00', detail)
+        self.assertIn('기대 60 00/0F XX XX XX XX XX XX', detail)
+        self.assertIn('RX 80 00 20 00 22 00 00 08', detail)
+        self.assertIn('RCV 타임아웃', detail)
+        self.assertIn('마지막 같은 ID 수신 80 00 20 00 22 00 00 08', detail)
+        # 도구 로그는 기존 형식(데이터 없음)을 유지한다.
+        self.assertNotIn('80 00 20 00', c.log.toPlainText())
+        c.show_log()
+        self.assertIn('TX 2F 00', c.log_dialog.view.toPlainText())
+        c.write('추가 줄')
+        self.assertIn('추가 줄', c.log_dialog.view.toPlainText())
+        c.clear_detail_log()
+        self.assertEqual(c.log_dialog.view.toPlainText(), '')
+        c.log_dialog.close()
+
     def test_timeout_stop_restart_close_and_mode(self):
         p = packet()
         c = self.control([dict(kind='RCV', packet=p, mask=[255]+[0]*7, timeout_ms=20), dict(kind='CMD', packet=p)])
